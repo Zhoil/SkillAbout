@@ -1,0 +1,7 @@
+# `scripts/hot_search.py` uses only the Python standard library.
+# The dependencies below are only needed for optional JingMe notification.
+requests>=2.28
+cryptography>=41.0  # 本人身份发消息的 AES-192-CBC 加密
+# playwright 仅在需要弹浏览器扫码登录时用到；若已通过 cookies-fetcher / 京ME 登录过可不装。
+# 需要时脚本会自动 pip install，也可手动：pip install playwright && playwright install chromium
+# playwright>=1.40
