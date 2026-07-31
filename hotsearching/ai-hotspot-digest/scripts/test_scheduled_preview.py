@@ -27,6 +27,65 @@ class ScheduledPreviewTest(unittest.TestCase):
         self.assertIn("预览已生成", reminder)
         self.assertNotIn("京ME", reminder)
 
+    def test_load_schedule_fetch_last30days_requires_skill_dir(self):
+        """fetch_last30days=true without skill_dir must raise."""
+        import json, tempfile
+        cfg = {
+            "enabled": True,
+            "time": "10:00:00",
+            "timezone": "GMT+8",
+            "digest_config": "references/config.example.json",
+            "last30days_file": "/tmp/last30days.json",
+            "annotations_file": "/tmp/annotations.json",
+            "output_dir": "/tmp/output",
+            "fetch_last30days": True,
+            "last30days_skill_dir": "",   # <-- empty, should fail
+        }
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "schedule.json"
+            path.write_text(json.dumps(cfg), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "last30days_skill_dir"):
+                scheduled_preview.load_schedule(path)
+
+    def test_load_schedule_fetch_last30days_ok_with_skill_dir(self):
+        """fetch_last30days=true with a non-empty skill_dir should not raise."""
+        import json, tempfile
+        cfg = {
+            "enabled": True,
+            "time": "10:00:00",
+            "timezone": "GMT+8",
+            "digest_config": "references/config.example.json",
+            "last30days_file": "/tmp/last30days.json",
+            "annotations_file": "/tmp/annotations.json",
+            "output_dir": "/tmp/output",
+            "fetch_last30days": True,
+            "last30days_skill_dir": "/some/path/last30days",
+        }
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "schedule.json"
+            path.write_text(json.dumps(cfg), encoding="utf-8")
+            result = scheduled_preview.load_schedule(path)
+            self.assertTrue(result.get("fetch_last30days"))
+
+    def test_load_schedule_without_fetch_does_not_require_skill_dir(self):
+        """fetch_last30days=false (default) must not require last30days_skill_dir."""
+        import json, tempfile
+        cfg = {
+            "enabled": True,
+            "time": "10:00:00",
+            "timezone": "GMT+8",
+            "digest_config": "references/config.example.json",
+            "last30days_file": "/tmp/last30days.json",
+            "annotations_file": "/tmp/annotations.json",
+            "output_dir": "/tmp/output",
+            # fetch_last30days omitted → defaults to false
+        }
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "schedule.json"
+            path.write_text(json.dumps(cfg), encoding="utf-8")
+            result = scheduled_preview.load_schedule(path)
+            self.assertFalse(result.get("fetch_last30days"))
+
 
 if __name__ == "__main__":
     unittest.main()

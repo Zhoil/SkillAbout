@@ -7,9 +7,23 @@ description: 汇总 last30days 近 30 天 AI 热点与中文描述，以及 Star
 
 按以下顺序执行，不复制或修改依赖 Skill 的内部逻辑。
 
-## 1. 收集近 30 天 AI 热点
+## 1. 收集近 30 天热点
 
-完整读取并调用同级 `../last30days/SKILL.md`，主题默认使用 `AI artificial intelligence`，时间窗固定为 30 天。优先请求其稳定 JSON agent 输出；若宿主只能得到 Markdown，将 Markdown 保存为文件也可。
+**搜索参数优先从工作配置的 `last30days` 段读取**，以下为各字段说明：
+
+| 字段 | 说明 | 默认值 |
+|---|---|---|
+| `topic` | 搜索关键词/主题字符串 | `AI artificial intelligence` |
+| `days` | 回溯天数 | `30` |
+| `depth` | 检索深度：`default` / `quick` / `deep` | `default` |
+| `search` | 逗号分隔来源名称（留空使用 last30days 默认） | 空 |
+| `subreddits` | 逗号分隔的 subreddit 名（不含 `r/`） | 空 |
+| `dedicated_subreddits` | 实体专属 subreddit，全量拉取，不过相关性门槛 | 空 |
+| `x_handle` | X/Twitter 账号针对性搜索 | 空 |
+
+完整读取并调用同级 `../last30days/SKILL.md`，使用上述参数作为调用入参。优先请求其稳定 JSON agent 输出；若宿主只能得到 Markdown，将 Markdown 保存为文件也可。
+
+如需在脚本/定时任务中自动采集，可直接调用 `scripts/fetch_hotspots.py`（见第 5 步）。
 
 把产物路径传给汇总脚本的 `--last30days-file`。不得从 `last30days` 目录移动文件或修改其脚本。
 
@@ -67,7 +81,13 @@ python3 scripts/push_digest.py \
 
 ## 5. 每日定时生成预览
 
-复制 `references/schedule.example.json` 为工作配置，设置 GMT+8 的 `time`、三个输入路径和输出目录。输入文件由上游流程更新；每次执行都会重新抓取 Star History。先验证一次：
+复制 `references/schedule.example.json` 为工作配置，设置 GMT+8 的 `time`、三个输入路径和输出目录。
+
+**自动采集热点（推荐）：** 将 `fetch_last30days` 设为 `true`，并填写 `last30days_skill_dir`（指向含 `scripts/last30days.py` 的目录）。每次定时运行时，进程会先调用 `fetch_hotspots.py` 按配置中的 `last30days` 参数刷新热点文件，再生成摘要预览，无需手动维护输入文件。
+
+**手动维护热点文件：** 保持 `fetch_last30days` 为 `false`（默认），由外部流程定时更新 `last30days_file`，每次执行仍会重新抓取 Star History。
+
+先验证一次：
 
 ```bash
 python3 scripts/scheduled_preview.py --schedule <定时配置> --run-once
@@ -80,6 +100,15 @@ python3 -u scripts/scheduled_preview.py --schedule <定时配置>
 ```
 
 进程每天在配置时间生成 `digest-YYYYMMDD-HHMMSS.txt`，并原子更新用途明确的 `latest.txt`。该进程只生成本地预览，绝不执行发送。需要系统重启后自动恢复时，由用户选择受管进程或操作系统任务管理器；不得未经授权安装系统级任务。
+
+**单次手动采集：**
+
+```bash
+python3 scripts/fetch_hotspots.py \
+  --config <配置文件> \
+  --skill-dir <last30days目录> \
+  --output <输出JSON>
+```
 
 ## 质量检查
 

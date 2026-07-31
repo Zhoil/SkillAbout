@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Generate digest previews once or on a daily schedule. Never sends messages."""
+"""Generate digest previews once or on a daily schedule. Never sends messages.
+
+When schedule.fetch_last30days is true, each run first calls fetch_hotspots.py
+to refresh the last30days JSON file using the search parameters in the digest
+config, then builds the digest from the freshly fetched result.
+"""
 
 from __future__ import annotations
 
@@ -27,6 +32,13 @@ def load_schedule(path: Path) -> dict[str, Any]:
     for key in ("digest_config", "last30days_file", "annotations_file", "output_dir"):
         if not isinstance(config.get(key), str) or not config[key].strip():
             raise ValueError(f"schedule.{key} must be a non-empty path")
+    # Validate fetch_last30days dependencies when the option is enabled.
+    if config.get("fetch_last30days"):
+        skill_dir = config.get("last30days_skill_dir", "")
+        if not isinstance(skill_dir, str) or not skill_dir.strip():
+            raise ValueError(
+                "schedule.last30days_skill_dir must be set when fetch_last30days is true"
+            )
     return config
 
 
@@ -42,17 +54,43 @@ def resolve_path(value: str, schedule_file: Path) -> Path:
     return path if path.is_absolute() else (schedule_file.parent.parent / path).resolve()
 
 
+def fetch_hotspots(
+    schedule_file: Path,
+    config: dict[str, Any],
+    output_path: Path,
+) -> None:
+    """Refresh the last30days JSON file via fetch_hotspots.py."""
+    skill_dir = resolve_path(config["last30days_skill_dir"], schedule_file)
+    digest_config = resolve_path(config["digest_config"], schedule_file)
+    fetcher = Path(__file__).with_name("fetch_hotspots.py")
+    command = [
+        sys.executable,
+        str(fetcher),
+        "--config", str(digest_config),
+        "--skill-dir", str(skill_dir),
+        "--output", str(output_path),
+    ]
+    subprocess.run(command, check=True)
+
+
 def generate_preview(schedule_file: Path, config: dict[str, Any], now: datetime | None = None) -> Path:
     current = (now or datetime.now(timezone.utc)).astimezone(GMT_PLUS_8)
     output_dir = resolve_path(config["output_dir"], schedule_file)
     output_dir.mkdir(parents=True, exist_ok=True)
     output = output_dir / current.strftime("digest-%Y%m%d-%H%M%S.txt")
+
+    last30days_path = resolve_path(config["last30days_file"], schedule_file)
+
+    # Optionally refresh the last30days JSON before building the digest.
+    if config.get("fetch_last30days"):
+        fetch_hotspots(schedule_file, config, last30days_path)
+
     builder = Path(__file__).with_name("build_digest.py")
     command = [
         sys.executable,
         str(builder),
         "--config", str(resolve_path(config["digest_config"], schedule_file)),
-        "--last30days-file", str(resolve_path(config["last30days_file"], schedule_file)),
+        "--last30days-file", str(last30days_path),
         "--annotations-file", str(resolve_path(config["annotations_file"], schedule_file)),
         "--output", str(output),
     ]

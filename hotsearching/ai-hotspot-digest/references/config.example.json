@@ -1,10 +1,28 @@
 {
-  "topic": "AI artificial intelligence",
+  "_comment": "复制此文件为工作配置（如 config.json），按需填写。所有字段均有默认值。",
+
+  "last30days": {
+    "_comment": "控制 last30days 热点采集的关键词和方向，留空则使用以下默认值。",
+    "topic": "AI artificial intelligence",
+    "days": 30,
+    "depth": "default",
+    "_comment_depth": "depth 可选 default / quick / deep",
+    "search": "",
+    "_comment_search": "逗号分隔的来源名称，如 reddit,x,hackernews。留空使用 last30days 默认来源。",
+    "subreddits": "",
+    "_comment_subreddits": "逗号分隔的 subreddit 名（不含 r/），如 MachineLearning,LocalLLaMA。留空自动选择。",
+    "x_handle": "",
+    "_comment_x_handle": "可选：为某个 X/Twitter 账号做针对性搜索，如 AnthropicAI。",
+    "dedicated_subreddits": "",
+    "_comment_dedicated_subreddits": "实体专属 subreddit（全量拉取，不过相关性门槛），如 ChatGPT,ClaudeAI。"
+  },
+
   "limits": {
     "last30days": 4,
     "weekly": 5,
     "all_time": 5
   },
+
   "push": {
     "_comment": "adapter 决定调用哪个推送实现；target 由适配器自行解释。",
     "adapter": "shell",

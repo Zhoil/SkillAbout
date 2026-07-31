@@ -143,7 +143,58 @@ python3 hotsearching/ai-hotspot-digest/scripts/push_digest.py \
 
 消息内容通过 stdin 传入命令。
 
+### 自定义 last30days 搜索关键词和方向
+
+在 `config.json` 的 `last30days` 字段中配置采集参数：
+
+```json
+"last30days": {
+  "topic": "open source LLM inference",
+  "days": 14,
+  "depth": "deep",
+  "search": "reddit,hackernews,x",
+  "subreddits": "LocalLLaMA,MachineLearning",
+  "dedicated_subreddits": "ollama",
+  "x_handle": "ollama"
+}
+```
+
+| 字段 | 说明 | 默认值 |
+|---|---|---|
+| `topic` | 搜索关键词/主题 | `AI artificial intelligence` |
+| `days` | 回溯天数 | `30` |
+| `depth` | `default` / `quick` / `deep` | `default` |
+| `search` | 逗号分隔来源（留空用引擎默认） | 空 |
+| `subreddits` | 额外 subreddit（不含 `r/`） | 空 |
+| `dedicated_subreddits` | 实体专属 subreddit，全量拉取 | 空 |
+| `x_handle` | X/Twitter 账号定向搜索 | 空 |
+
+手动单次采集：
+
+```bash
+python3 hotsearching/ai-hotspot-digest/scripts/fetch_hotspots.py \
+  --config ~/.ai-hotspot-digest/config.json \
+  --skill-dir hotsearching/last30days \
+  --output /tmp/ai-hotspots.json
+```
+
 ### 每日定时生成预览
+
+`schedule.json` 新增 `fetch_last30days` 选项，设为 `true` 后每次定时运行前会自动刷新热点文件，无需维护独立采集任务：
+
+```json
+{
+  "enabled": true,
+  "time": "10:00:00",
+  "timezone": "GMT+8",
+  "digest_config": "~/.ai-hotspot-digest/config.json",
+  "last30days_file": "/tmp/ai-hotspots-last30days.json",
+  "annotations_file": "/tmp/ai-hotspot-annotations.json",
+  "output_dir": "/tmp/ai-hotspot-daily-previews",
+  "fetch_last30days": true,
+  "last30days_skill_dir": "/path/to/hotsearching/last30days"
+}
+```
 
 ```bash
 # 验证一次
