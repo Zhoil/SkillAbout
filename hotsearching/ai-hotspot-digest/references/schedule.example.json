@@ -1,0 +1,9 @@
+{
+  "enabled": true,
+  "time": "10:00:00",
+  "timezone": "GMT+8",
+  "digest_config": "references/config.example.json",
+  "last30days_file": "/private/tmp/ai-hotspots-last30days.json",
+  "annotations_file": "/private/tmp/ai-hotspot-annotations.json",
+  "output_dir": "/private/tmp/ai-hotspot-daily-previews"
+}

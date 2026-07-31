@@ -1,0 +1,19 @@
+{
+  "topic": "AI artificial intelligence",
+  "limits": {
+    "last30days": 4,
+    "weekly": 5,
+    "all_time": 5
+  },
+  "push": {
+    "_comment": "adapter 决定调用哪个推送实现；target 由适配器自行解释。",
+    "adapter": "shell",
+    "target": {
+      "_comment_group_example": "企业微信群机器人示例：adapter=wecom_bot, target.webhook_url",
+      "_comment_slack_example": "Slack 示例：adapter=slack_webhook, target.webhook_url",
+      "_comment_bark_example": "Bark（iOS）示例：adapter=bark, target.url",
+      "_comment_shell_example": "通用 shell 示例：adapter=shell, target.command 接收消息作为最后一个参数或 stdin",
+      "command": "echo"
+    }
+  }
+}
