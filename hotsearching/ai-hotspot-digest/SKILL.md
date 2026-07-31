@@ -1,0 +1,92 @@
+---
+name: ai-hotspot-digest
+description: 汇总 last30days 近 30 天 AI 热点与中文描述，以及 Star History Weekly 排名趋势、Star 增量和 All-time 总 Star，按固定格式生成消息预览；用户明确确认后通过可自定义的推送渠道发送。用户要求 AI 热点日报、Star History 榜单汇总或推送到消息渠道时使用。
+---
+
+# AI Hotspot Digest
+
+按以下顺序执行，不复制或修改依赖 Skill 的内部逻辑。
+
+## 1. 收集近 30 天 AI 热点
+
+完整读取并调用同级 `../last30days/SKILL.md`，主题默认使用 `AI artificial intelligence`，时间窗固定为 30 天。优先请求其稳定 JSON agent 输出；若宿主只能得到 Markdown，将 Markdown 保存为文件也可。
+
+把产物路径传给汇总脚本的 `--last30days-file`。不得从 `last30days` 目录移动文件或修改其脚本。
+
+读取最终选中的热点，为每条来源 URL 编写一句不超过 60 个汉字的中文描述，保存为 JSON 对象。键必须是原始来源 URL，值必须说明事件、核心变化或影响；格式参考 `references/annotations.example.json`。不得翻译或改写标题来冒充描述。
+
+## 2. 生成汇总预览
+
+复制 `references/config.example.json` 为一个工作配置，填写推送目标。三个数量互相独立：
+
+- `limits.last30days`：近 30 天 AI 热点条数。
+- `limits.weekly`：Star History Weekly 条数。
+- `limits.all_time`：Star History All-time 条数。
+
+运行：
+
+```bash
+python3 scripts/build_digest.py \
+  --config <配置文件> \
+  --last30days-file <last30days产物> \
+  --annotations-file <中文描述JSON> \
+  --output <消息预览文件>
+```
+
+脚本从 `https://www.star-history.com/` 提取 Weekly 的趋势和 Star 变化，并从 All-time 提取 Star 总数。Weekly 固定写成 `序号. 趋势符号 仓库名 +变化量`，例如 `2. ▲ owner/repo +12`；All-time 固定写成 `序号. ：仓库名 ：总数 🌟`。两类链接的下一行固定使用 `🔎 URL`。趋势使用 `–`（持平）、`▲`（上升）、`▼`（下降），不得输出"排名""趋势""Star 变化""数据源"等标签或尾行。若任一榜单无法识别，停止发送并报告错误，不得用臆测数据补齐。需要离线验证时可用 `--star-history-html <HTML文件>`。
+
+始终采用脚本内置的固定模板，不让模型自行排版。消息第一行固定为生成时的 GMT+8 时间：`🕒 YYYY-MM-DD HH:mm:ss GMT+8`。每类字段顺序固定：
+
+- 热点：`序号. 标题 ：中文描述` → 下一行 `🌐 URL`。
+- Weekly：趋势符号 + 仓库 + 变化量 → 下一行 `🔎 URL`。
+- All-time：仓库 → `总数 🌟` → 下一行 `🔎 URL`。
+
+## 3. 解析推送目标
+
+配置文件中 `push.target` 字段描述推送渠道和目标标识符，格式由渠道自定义（见 `references/config.example.json`）。
+
+如需在发送前解析目标，调用对应渠道的工具或 CLI 验证目标可达性，确保唯一匹配后记录实际 ID。
+
+## 4. 确认后发送
+
+先向用户展示：推送渠道名称、目标标识符、预览文件中的完整消息、@列表（本 Skill 默认空）。必须获得明确确认。
+
+确认后调用 `push_digest.py` 执行发送：
+
+```bash
+python3 scripts/push_digest.py \
+  --config <配置文件> \
+  --message-file <消息预览文件>
+```
+
+`push_digest.py` 根据 `push.adapter` 字段加载对应适配器（见 `references/config.example.json` 中的适配器说明），将预览文件内容发送至目标。
+
+超时或返回状态不明时不得重试。只有 CLI 明确成功才报告已发送。仅生成预览、定时发送或未确认时不得调用写操作。
+
+本 Skill 不执行无人值守或定时真实发送。可以由外部计划任务定时生成预览，但每次调用发送前仍须完成身份、目标、完整内容确认。
+
+## 5. 每日定时生成预览
+
+复制 `references/schedule.example.json` 为工作配置，设置 GMT+8 的 `time`、三个输入路径和输出目录。输入文件由上游流程更新；每次执行都会重新抓取 Star History。先验证一次：
+
+```bash
+python3 scripts/scheduled_preview.py --schedule <定时配置> --run-once
+```
+
+确认预览生成成功后启动持续进程：
+
+```bash
+python3 -u scripts/scheduled_preview.py --schedule <定时配置>
+```
+
+进程每天在配置时间生成 `digest-YYYYMMDD-HHMMSS.txt`，并原子更新用途明确的 `latest.txt`。该进程只生成本地预览，绝不执行发送。需要系统重启后自动恢复时，由用户选择受管进程或操作系统任务管理器；不得未经授权安装系统级任务。
+
+## 质量检查
+
+- 确认三类实际条数均不超过配置，数量为 `0` 时省略该类。
+- 保留来源链接；同一类型内按原始榜单/热度顺序排列。
+- 确认每条热点都有中文描述；缺失时脚本会显示固定占位语，发送前必须补齐并重新生成。
+- 确认 Weekly 每条都有趋势符号和 Star 增量，All-time 每条都有 Star 总数。
+- 对同一输入重复运行时，标题、章节、字段顺序、缩进和数字格式必须完全一致。
+- 不输出 token、cookie 或内部鉴权信息。
+- 任一上游失败时保留已生成的本地预览，但不得发送不完整消息。

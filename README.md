@@ -8,7 +8,7 @@ Hot Search Skill 是一个轻量、可审计的热点监测工具，用于抓取
 - 监测指定 GitHub 仓库的 Star 快照和时间窗口增量。
 - 汇总 Reddit、Bluesky、Hacker News、GitHub 等公开来源的 AI 热点。
 - 生成可在浏览器查看的 HTML 热点面板。
-- 在 macOS 上每天定时抓取并推送报告。
+- 按自定义渠道（企业微信机器人、Slack、飞书、钉钉、Bark、任意 shell 命令等）定时推送报告。
 
 ## 主要能力
 
@@ -28,166 +28,141 @@ Hot Search Skill 是一个轻量、可审计的热点监测工具，用于抓取
 通过本地快照计算真实时间窗口内的 Star 变化：
 
 ```bash
-python3 hot-search-skill/scripts/hot_search.py snapshot --repo owner/name
-python3 hot-search-skill/scripts/hot_search.py hourly --repo owner/name --hours 1 --refresh
-python3 hot-search-skill/scripts/hot_search.py watch --repo owner/name --interval 300 --count 12
+python3 hotsearching/last30days/scripts/last30days.py snapshot --repo owner/name
 ```
-
-默认状态保存在 `~/.hot-search-skill/state.json`，可通过 `HOT_SEARCH_STATE_DIR` 或 `--state` 修改。
 
 ### AI 社区热点
 
-```bash
-python3 hot-search-skill/scripts/social_hotspots.py \
-  "artificial intelligence AI agents" --days 7 --limit 10
-
-python3 hot-search-skill/scripts/social_hotspots.py \
-  "AI coding agents" --format json
-
-python3 hot-search-skill/scripts/social_hotspots.py \
-  "AI video" --format html --output /tmp/ai-pulse.html
-```
-
-当前公开来源包括 Reddit、Bluesky、Hacker News 和 GitHub。排序综合原生互动量、时效性、来源质量及跨源印证，并限制单一作者或来源占比。
-
-来源状态区分 `ok`、`no-results`、`rate-limited`、`unreachable`、`schema-drift` 和 `error`。只有 `no-results` 表示请求成功但没有匹配内容，其他失败状态都代表覆盖不完整。
+调用 `hotsearching/last30days` Skill，汇总来自 Reddit、Bluesky、Hacker News 和 GitHub 的 AI 热点，输出 Markdown、JSON 或 HTML。
 
 ## 环境要求
 
 - Python 3.11 或更高版本。
 - 公开热点和 Star 监控仅使用 Python 标准库。
-- 京 ME 推送为可选能力，需要额外依赖和可用的登录环境。
+- 消息推送为可选能力，标准库即可覆盖大多数 webhook 适配器；`shell` 适配器支持调用任意外部命令。
 
-安装可选推送依赖：
+## AI 热点摘要与推送
 
-```bash
-python3 -m venv .venv
-.venv/bin/python -m pip install -r hot-search-skill/requirements.txt
-```
+`hotsearching/ai-hotspot-digest` 将 last30days 热点与 Star History 榜单合并，生成固定格式的摘要文本，再通过可配置的推送渠道发送。
 
-如需要浏览器登录，可能还需要 Playwright：
+### 快速开始
 
 ```bash
-.venv/bin/python -m pip install playwright
-.venv/bin/python -m playwright install chromium
+# 1. 复制配置模板
+cp hotsearching/ai-hotspot-digest/references/config.example.json \
+   ~/.ai-hotspot-digest/config.json
+
+# 2. 编辑配置，选择推送适配器
+# 支持：shell / wecom_bot / slack_webhook / bark / feishu_bot / dingtalk_bot
+
+# 3. 生成预览（不发送）
+python3 hotsearching/ai-hotspot-digest/scripts/build_digest.py \
+  --config ~/.ai-hotspot-digest/config.json \
+  --last30days-file /tmp/ai-hotspots.json \
+  --annotations-file /tmp/annotations.json \
+  --output /tmp/digest-preview.txt
+
+# 4. 确认预览内容后发送
+python3 hotsearching/ai-hotspot-digest/scripts/push_digest.py \
+  --config ~/.ai-hotspot-digest/config.json \
+  --message-file /tmp/digest-preview.txt
 ```
 
-## 生成报告
+### 推送适配器配置
 
-组合报告与消息预览：
+在 `config.json` 的 `push` 字段中指定适配器和目标：
 
-```bash
-python3 hot-search-skill/scripts/hot_search.py report --limit 10
-python3 hot-search-skill/scripts/hot_search.py message --limit 6 --push-payload
-```
-
-消息使用纯文本和完整链接，避免依赖未注册的客户端卡片模板。超长内容按完整行截断，不会截断 URL。
-
-## 自定义推送配置
-
-示例配置位于 [`hot-search-skill/references/push-config.example.json`](hot-search-skill/references/push-config.example.json)。复制到用户目录：
-
-```bash
-mkdir -p ~/.hot-search-skill
-cp hot-search-skill/references/push-config.example.json \
-  ~/.hot-search-skill/push-config.json
-```
-
-编辑私有配置：
+**企业微信群机器人**
 
 ```json
-{
-  "enabled": true,
+"push": {
+  "adapter": "wecom_bot",
   "target": {
-    "type": "group",
-    "id": "your-group-id"
-  },
-  "schedule": {
-    "hour": 10,
-    "minute": 10
-  },
-  "limit": 6,
-  "include_ai_hotspots": true,
-  "send_timeout": 90
+    "webhook_url": "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=YOUR_KEY",
+    "msg_type": "text"
+  }
 }
 ```
 
-`target.type` 支持 `group` 和 `user`。如需指定虚拟环境解释器，可增加：
+**Slack Incoming Webhook**
 
 ```json
-"python": "/absolute/path/to/.venv/bin/python"
+"push": {
+  "adapter": "slack_webhook",
+  "target": {
+    "webhook_url": "https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
+  }
+}
 ```
 
-不要把包含真实群号、用户 ID、Cookie 或凭据的私有配置提交到仓库。
+**飞书群机器人**
 
-## 测试推送
+```json
+"push": {
+  "adapter": "feishu_bot",
+  "target": {
+    "webhook_url": "https://open.feishu.cn/open-apis/bot/v2/hook/YOUR_KEY"
+  }
+}
+```
 
-先进行只读预览：
+**钉钉群机器人**
+
+```json
+"push": {
+  "adapter": "dingtalk_bot",
+  "target": {
+    "webhook_url": "https://oapi.dingtalk.com/robot/send?access_token=YOUR_TOKEN"
+  }
+}
+```
+
+**Bark（iOS 推送）**
+
+```json
+"push": {
+  "adapter": "bark",
+  "target": {
+    "url": "https://api.day.app/YOUR_KEY/",
+    "title": "AI 热点日报"
+  }
+}
+```
+
+**任意 shell 命令**
+
+```json
+"push": {
+  "adapter": "shell",
+  "target": {
+    "command": "/usr/local/bin/my-notify",
+    "args": ["--channel", "ai-digest"]
+  }
+}
+```
+
+消息内容通过 stdin 传入命令。
+
+### 每日定时生成预览
 
 ```bash
-python3 hot-search-skill/scripts/hot_search.py daily-push --dry-run
+# 验证一次
+python3 hotsearching/ai-hotspot-digest/scripts/scheduled_preview.py \
+  --schedule ~/.ai-hotspot-digest/schedule.json --run-once
+
+# 启动持续进程（只生成预览，不发送）
+python3 -u hotsearching/ai-hotspot-digest/scripts/scheduled_preview.py \
+  --schedule ~/.ai-hotspot-digest/schedule.json
 ```
 
-预览会展示目标、完整正文和发送命令，但不会产生消息。确认目标和正文后，可执行一次配置驱动的发送：
+预览文件保存在配置的 `output_dir`，每次原子更新 `latest.txt`。
+
+## 测试
 
 ```bash
-python3 hot-search-skill/scripts/hot_search.py daily-push
+cd hotsearching/ai-hotspot-digest/scripts
+python3 -m pytest test_build_digest.py test_scheduled_preview.py test_push_digest.py -v
 ```
-
-如果配置位于其他位置：
-
-```bash
-python3 hot-search-skill/scripts/hot_search.py daily-push \
-  --config /path/to/private-push-config.json --dry-run
-```
-
-写操作超时或返回状态未知时不要立即重试，应先在目标客户端确认是否已经收到，避免重复消息。
-
-## 每日 10:10 自动运行
-
-macOS 使用 `launchd` 安装每日任务。默认按系统本地时区读取配置中的 `schedule.hour` 和 `schedule.minute`：
-
-```bash
-python3 hot-search-skill/scripts/hot_search.py schedule install
-python3 hot-search-skill/scripts/hot_search.py schedule status
-```
-
-默认配置即每天 `10:10` 执行。日志保存在：
-
-```text
-~/.hot-search-skill/daily-push.log
-~/.hot-search-skill/daily-push.error.log
-```
-
-卸载任务：
-
-```bash
-python3 hot-search-skill/scripts/hot_search.py schedule uninstall
-```
-
-当前自动调度仅支持 macOS。Linux 用户可以通过 cron 调用同一个 `daily-push` 命令，例如：
-
-```cron
-10 10 * * * cd /path/to/hot-search-skill && /usr/bin/python3 hot-search-skill/scripts/hot_search.py daily-push
-```
-
-## 京 ME 推送说明
-
-京 ME 是可选的内部适配能力，不影响公开来源采集和本地报告生成。使用前应确认：
-
-1. `runtime/dispatch.py whoami` 能正确返回发送者。
-2. 目标用户或群 ID 唯一且经过核对。
-3. 完整正文和所有提及已经预览。
-4. 用户明确授权真实发送。
-
-常用只读检查：
-
-```bash
-.venv/bin/python hot-search-skill/runtime/dispatch.py whoami
-.venv/bin/python hot-search-skill/runtime/dispatch.py search-group --q "group name"
-```
-
-不要输出或提交 `me_token`、`appSecret`、`accessToken` 等凭据。
 
 ## 故障排查
 
@@ -207,34 +182,28 @@ export GITHUB_TOKEN="your-token"
 
 也支持 `GH_TOKEN`。不要把 Token 写入示例或提交到 Git。
 
-### 定时任务没有执行
-
-```bash
-python3 hot-search-skill/scripts/hot_search.py schedule status
-tail -n 100 ~/.hot-search-skill/daily-push.error.log
-```
-
-确认配置已设置 `enabled: true`，并尽量在配置中使用 Python 解释器的绝对路径，因为 `launchd` 的环境变量和交互式终端不同。
-
 ### 推送状态未知
 
-先到目标客户端确认消息是否存在。只有确认没有发送成功后才能再次执行，禁止无条件自动重试。
+先到目标渠道确认消息是否存在。只有确认没有发送成功后才能再次执行，禁止无条件自动重试。
 
 ## 项目结构
 
 ```text
-hot-search-skill/
-├── SKILL.md                 # Agent 使用说明
-├── scripts/
-│   ├── hot_search.py        # Star、报告、推送与调度入口
-│   ├── social_hotspots.py   # 社区热点 CLI
-│   └── lib/                 # 来源、排序、解析与渲染
-├── runtime/                 # 可选消息推送运行时
-├── references/
-│   ├── LAST30DAYS.md        # 近 30 天研究约束
-│   ├── source-strategy.md   # 来源和覆盖语义
-│   └── jingme-notify.md     # 京 ME 安全发送规范
-└── requirements.txt
+hotsearching/
+├── last30days/              # AI 热点采集 Skill
+├── ai-hotspot-digest/       # 摘要生成与可配置推送 Skill
+│   ├── SKILL.md
+│   ├── scripts/
+│   │   ├── build_digest.py      # 生成摘要预览
+│   │   ├── push_digest.py       # 通用推送适配器
+│   │   ├── scheduled_preview.py # 定时生成预览
+│   │   ├── test_build_digest.py
+│   │   ├── test_scheduled_preview.py
+│   │   └── test_push_digest.py
+│   └── references/
+│       ├── config.example.json      # 推送配置模板
+│       ├── annotations.example.json # 中文描述格式示例
+│       └── schedule.example.json    # 定时配置模板
 ```
 
 ## 设计原则
@@ -242,7 +211,6 @@ hot-search-skill/
 - 确定性采集优先，不凭空补齐失败来源。
 - 事实、社区观点和项目指标分开表达。
 - 原始链接和原生互动指标保持可追溯。
+- 推送渠道完全可配置，不绑定任何特定 IM 软件。
 - 自动推送只读取已落盘且通过校验的配置。
 - 外部写操作失败或状态未知时不自动重试。
-
-更多 Agent 工作流和输出格式见 [`hot-search-skill/SKILL.md`](hot-search-skill/SKILL.md)。

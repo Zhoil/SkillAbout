@@ -1,4 +1,0 @@
-interface:
-  display_name: "Hot Search Monitor"
-  short_description: "Track GitHub stars and global AI social trends"
-  default_prompt: "Use $hot-search-skill to track GitHub star changes and research current AI discussion across global social sources, including coverage status and source links."
