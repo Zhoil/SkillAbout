@@ -7,6 +7,22 @@ import unittest
 import build_digest
 
 
+def _make_weekly_items(count: int = 5) -> list[dict[str, str]]:
+    """Create mock weekly items for testing."""
+    trends = ["▲", "▼", "–", "▲", "▼", "▲", "–", "▼", "▲", "▲",
+              "▼", "–", "▲", "▼", "▲", "–", "▼", "▲", "–", "▼"]
+    items = []
+    for i in range(count):
+        items.append({
+            "title": f"owner/repo-{i + 1}",
+            "rank": str(i + 1),
+            "trend": trends[i % len(trends)],
+            "stars_delta": str(1000 - i * 50),
+            "url": f"https://github.com/owner/repo-{i + 1}",
+        })
+    return items
+
+
 class BuildDigestTest(unittest.TestCase):
     def test_parse_star_history_and_limits(self):
         page = """<button>Weekly</button><button>All-time</button><ol>
@@ -46,7 +62,7 @@ class BuildDigestTest(unittest.TestCase):
             build_digest.render_all_time(all_time, 1),
         ]
         actual = "\n\n".join(sections)
-        expected = """【近30天 AI 热点】
+        expected = """【近30天 研发工具与技能热点】
 1. AI debt ：人工智能公司债务问题受到关注
    🌐 https://example.com/a
 
@@ -65,12 +81,102 @@ class BuildDigestTest(unittest.TestCase):
         message = build_digest.render_message(["SECTION"], generated_at)
         self.assertEqual(
             message,
-            "🕒 2026-07-30 11:03:00 GMT+8\n\nAI 热点与开源趋势汇总\n\nSECTION",
+            "🕒 2026-07-30 11:03:00 GMT+8\n\n研发工具与技能热点及开源趋势汇总\n\nSECTION",
         )
 
     def test_missing_chinese_description_rejected(self):
         with self.assertRaisesRegex(ValueError, "Missing Chinese description"):
             build_digest.render_recent([{"title": "AI", "url": "https://example.com"}], 1, {})
+
+    def test_render_weekly_table_basic(self):
+        items = _make_weekly_items(3)
+        table = build_digest.render_weekly_table(items, 3)
+        self.assertIn("【Weekly 变化对比表】", table)
+        self.assertIn("owner/repo-1", table)
+        self.assertIn("owner/repo-2", table)
+        self.assertIn("owner/repo-3", table)
+        self.assertIn("上期排名", table)
+        self.assertIn("本期排名", table)
+        self.assertIn("Star变化", table)
+
+    def test_render_weekly_table_trend_logic(self):
+        """Verify that ▲ means previous rank was worse (higher number)."""
+        items = [
+            {"title": "a/rising", "rank": "1", "trend": "▲", "stars_delta": "500", "url": "https://github.com/a/rising"},
+            {"title": "b/falling", "rank": "2", "trend": "▼", "stars_delta": "100", "url": "https://github.com/b/falling"},
+            {"title": "c/stable", "rank": "3", "trend": "–", "stars_delta": "50", "url": "https://github.com/c/stable"},
+        ]
+        table = build_digest.render_weekly_table(items, 3)
+        rows = table.split("\n")
+        # Line layout: header, separator, then data rows
+        # ▲ rank 1 -> previous rank was 2
+        rising_row = rows[3]  # first data row after header + separator
+        self.assertIn("2", rising_row)  # previous rank for rising item
+        # ▼ rank 2 -> previous rank was 1
+        falling_row = rows[4]
+        self.assertIn("1", falling_row)  # previous rank for falling item
+        # – rank 3 -> previous rank was 3
+        stable_row = rows[5]
+        self.assertIn("3", stable_row)  # previous rank for stable item
+
+    def test_render_weekly_table_empty(self):
+        self.assertEqual(build_digest.render_weekly_table([], 5), "")
+
+    def test_render_weekly_table_limit(self):
+        items = _make_weekly_items(10)
+        table = build_digest.render_weekly_table(items, 3)
+        # Should only contain the first 3 repos
+        self.assertIn("owner/repo-1", table)
+        self.assertIn("owner/repo-2", table)
+        self.assertIn("owner/repo-3", table)
+        self.assertNotIn("owner/repo-4", table)
+
+    def test_render_weekly_chart_generates_file(self):
+        """Test that render_weekly_chart creates a PNG file when matplotlib is available."""
+        if not build_digest.HAS_MATPLOTLIB:
+            self.skipTest("matplotlib not installed")
+        items = _make_weekly_items(5)
+        with tempfile.TemporaryDirectory() as directory:
+            output_path = Path(directory) / "digest.txt"
+            chart_path = build_digest.render_weekly_chart(items, 5, output_path)
+            self.assertIsNotNone(chart_path)
+            self.assertTrue(chart_path.exists())
+            self.assertEqual(chart_path.suffix, ".png")
+            # File should have non-trivial size (a real chart)
+            self.assertGreater(chart_path.stat().st_size, 1000)
+
+    def test_render_weekly_chart_20_items(self):
+        """Test chart generation with 20 items (the new default limit)."""
+        if not build_digest.HAS_MATPLOTLIB:
+            self.skipTest("matplotlib not installed")
+        items = _make_weekly_items(20)
+        with tempfile.TemporaryDirectory() as directory:
+            output_path = Path(directory) / "digest.txt"
+            chart_path = build_digest.render_weekly_chart(items, 20, output_path)
+            self.assertIsNotNone(chart_path)
+            self.assertTrue(chart_path.exists())
+            self.assertGreater(chart_path.stat().st_size, 5000)
+
+    def test_render_weekly_chart_no_matplotlib(self):
+        """Test graceful fallback when matplotlib is not available."""
+        if build_digest.HAS_MATPLOTLIB:
+            # Temporarily simulate missing matplotlib
+            original = build_digest.HAS_MATPLOTLIB
+            try:
+                build_digest.HAS_MATPLOTLIB = False
+                items = _make_weekly_items(5)
+                with tempfile.TemporaryDirectory() as directory:
+                    output_path = Path(directory) / "digest.txt"
+                    chart_path = build_digest.render_weekly_chart(items, 5, output_path)
+                    self.assertIsNone(chart_path)
+            finally:
+                build_digest.HAS_MATPLOTLIB = original
+        else:
+            items = _make_weekly_items(5)
+            with tempfile.TemporaryDirectory() as directory:
+                output_path = Path(directory) / "digest.txt"
+                chart_path = build_digest.render_weekly_chart(items, 5, output_path)
+                self.assertIsNone(chart_path)
 
 
 if __name__ == "__main__":

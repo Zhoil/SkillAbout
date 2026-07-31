@@ -14,7 +14,7 @@ Usage::
 
 The ``last30days`` section of the config supports:
 
-    topic               Search topic / keyword string (default: "AI artificial intelligence")
+    topic               Search topic / keyword string (default: "R&D tools developer skills AI agent")
     days                Lookback window in days (default: 30)
     depth               Retrieval depth: default | quick | deep (default: default)
     search              Comma-separated source names (default: engine default)
@@ -33,7 +33,7 @@ from pathlib import Path
 from typing import Any
 
 
-DEFAULT_TOPIC = "AI artificial intelligence"
+DEFAULT_TOPIC = "R&D tools developer skills AI agent"
 DEFAULT_DAYS = 30
 DEFAULT_DEPTH = "default"
 

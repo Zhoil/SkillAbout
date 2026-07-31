@@ -792,6 +792,10 @@ def _default_cluster_mode(intent: str) -> str:
 
 def _default_source_weights(intent: str, sources: list[str]) -> dict[str, float]:
     base = {source: 1.0 for source in sources}
+    # Boost R&D / developer-tool sources by default for better tool/skill discovery
+    for source, bonus in {"github": 1.5, "hackernews": 1.3, "arxiv": 1.2, "reddit": 1.1}.items():
+        if source in base:
+            base[source] += bonus
     if intent == "prediction":
         for source, bonus in {"polymarket": 2.5, "x": 1.3}.items():
             if source in base:

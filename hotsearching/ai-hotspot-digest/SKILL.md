@@ -1,6 +1,6 @@
 ---
 name: ai-hotspot-digest
-description: 汇总 last30days 近 30 天 AI 热点与中文描述，以及 Star History Weekly 排名趋势、Star 增量和 All-time 总 Star，按固定格式生成消息预览；用户明确确认后通过可自定义的推送渠道发送。用户要求 AI 热点日报、Star History 榜单汇总或推送到消息渠道时使用。
+description: 汇总 last30days 近 30 天研发工具与技能热点及中文描述，以及 Star History Weekly 排名趋势、Star 增量和 All-time 总 Star，按固定格式生成消息预览；用户明确确认后通过可自定义的推送渠道发送。用户要求研发工具热点日报、Star History 榜单汇总或推送到消息渠道时使用。
 ---
 
 # AI Hotspot Digest
@@ -13,7 +13,7 @@ description: 汇总 last30days 近 30 天 AI 热点与中文描述，以及 Star
 
 | 字段 | 说明 | 默认值 |
 |---|---|---|
-| `topic` | 搜索关键词/主题字符串 | `AI artificial intelligence` |
+| `topic` | 搜索关键词/主题字符串 | `R&D tools developer skills AI agent` |
 | `days` | 回溯天数 | `30` |
 | `depth` | 检索深度：`default` / `quick` / `deep` | `default` |
 | `search` | 逗号分隔来源名称（留空使用 last30days 默认） | 空 |
@@ -33,8 +33,8 @@ description: 汇总 last30days 近 30 天 AI 热点与中文描述，以及 Star
 
 复制 `references/config.example.json` 为一个工作配置，填写推送目标。三个数量互相独立：
 
-- `limits.last30days`：近 30 天 AI 热点条数。
-- `limits.weekly`：Star History Weekly 条数。
+- `limits.last30days`：近 30 天研发工具与技能热点条数。
+- `limits.weekly`：Star History Weekly 条数（默认 20）。
 - `limits.all_time`：Star History All-time 条数。
 
 运行：
@@ -49,10 +49,17 @@ python3 scripts/build_digest.py \
 
 脚本从 `https://www.star-history.com/` 提取 Weekly 的趋势和 Star 变化，并从 All-time 提取 Star 总数。Weekly 固定写成 `序号. 趋势符号 仓库名 +变化量`，例如 `2. ▲ owner/repo +12`；All-time 固定写成 `序号. ：仓库名 ：总数 🌟`。两类链接的下一行固定使用 `🔎 URL`。趋势使用 `–`（持平）、`▲`（上升）、`▼`（下降），不得输出"排名""趋势""Star 变化""数据源"等标签或尾行。若任一榜单无法识别，停止发送并报告错误，不得用臆测数据补齐。需要离线验证时可用 `--star-history-html <HTML文件>`。
 
+**对比图表生成：** 当 `limits.weekly > 0` 且安装了 matplotlib 时，脚本会自动在消息预览文件同目录下生成一张 PNG 对比图（文件名与预览文件相同，后缀改为 `.png`），内容包含：
+- 上半部分：前后两期排名对比折线图，蓝色圆点线表示上期排名，橙色方点线表示本期排名，Y 轴倒置（排名 1 在最上方），每个数据点标注趋势符号和 Star 变化量。
+- 下半部分：数据附表，包含序号、仓库名、趋势（上升/下降/持平）、上期排名、本期排名、Star 变化量。
+
+同时消息文本中也会嵌入纯文本格式的「Weekly 变化对比表」，方便不支持图片的渠道查看。
+
 始终采用脚本内置的固定模板，不让模型自行排版。消息第一行固定为生成时的 GMT+8 时间：`🕒 YYYY-MM-DD HH:mm:ss GMT+8`。每类字段顺序固定：
 
 - 热点：`序号. 标题 ：中文描述` → 下一行 `🌐 URL`。
 - Weekly：趋势符号 + 仓库 + 变化量 → 下一行 `🔎 URL`。
+- Weekly 对比表：纯文本表格，含上期/本期排名和 Star 变化。
 - All-time：仓库 → `总数 🌟` → 下一行 `🔎 URL`。
 
 ## 3. 解析推送目标
@@ -116,6 +123,7 @@ python3 scripts/fetch_hotspots.py \
 - 保留来源链接；同一类型内按原始榜单/热度顺序排列。
 - 确认每条热点都有中文描述；缺失时脚本会显示固定占位语，发送前必须补齐并重新生成。
 - 确认 Weekly 每条都有趋势符号和 Star 增量，All-time 每条都有 Star 总数。
+- 确认 Weekly 对比图（PNG）已生成（需 matplotlib）；若生成失败，脚本会在 JSON 输出中报告 `chart_error`，但不影响文本消息的生成。
 - 对同一输入重复运行时，标题、章节、字段顺序、缩进和数字格式必须完全一致。
 - 不输出 token、cookie 或内部鉴权信息。
 - 任一上游失败时保留已生成的本地预览，但不得发送不完整消息。

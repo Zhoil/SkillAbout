@@ -55,6 +55,23 @@ SYNONYMS = {
     'sveltejs': {'svelte'},
     'vue': {'vuejs'},
     'vuejs': {'vue'},
+    # R&D tools / developer skills synonyms
+    'devtools': {'developer', 'tools', 'dev-tool', 'dev-tooling'},
+    'sdk': {'toolkit', 'framework'},
+    'toolkit': {'sdk', 'framework'},
+    'ide': {'editor', 'vscode'},
+    'vscode': {'ide', 'editor'},
+    'copilot': {'assistant', 'ai-coding'},
+    'agent': {'bot', 'autonomous', 'ai-agent'},
+    'llm': {'large', 'language', 'model'},
+    'mcp': {'model', 'context', 'protocol'},
+    'rag': {'retrieval', 'augmented', 'generation'},
+    'cli': {'command', 'terminal'},
+    'api': {'endpoint', 'service'},
+    'ci': {'continuous', 'integration'},
+    'cd': {'continuous', 'deployment'},
+    'devops': {'infrastructure', 'sre'},
+    'skill': {'ability', 'capability'},
 }
 
 # Generic query words that should not carry relevance on their own.

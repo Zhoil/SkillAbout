@@ -13,6 +13,15 @@ from typing import Any
 from urllib.parse import urljoin
 from urllib.request import Request, urlopen
 
+try:
+    import matplotlib
+    matplotlib.use("Agg")  # non-interactive backend
+    import matplotlib.pyplot as plt
+    import matplotlib.font_manager as fm
+    HAS_MATPLOTLIB = True
+except ImportError:
+    HAS_MATPLOTLIB = False
+
 
 STAR_HISTORY_URL = "https://www.star-history.com/"
 
@@ -163,7 +172,7 @@ def load_annotations(path: Path | None) -> dict[str, str]:
 
 
 def render_recent(items: list[dict[str, str]], limit: int, annotations: dict[str, str]) -> str:
-    lines = ["【近30天 AI 热点】"]
+    lines = ["【近30天 研发工具与技能热点】"]
     for index, item in enumerate(items[:limit], 1):
         source_url = item.get("url", "")
         description = annotations.get(source_url, "")
@@ -196,6 +205,210 @@ def render_all_time(items: list[dict[str, str]], limit: int) -> str:
     return "\n".join(lines) if limit and items else ""
 
 
+def _setup_chinese_font() -> str | None:
+    """Find a CJK-capable font for matplotlib. Returns None if not found."""
+    if not HAS_MATPLOTLIB:
+        return None
+    # Prefer fonts with good Simplified Chinese coverage
+    preferred_fonts = [
+        "PingFang SC", "Heiti SC", "STHeiti", "Songti SC",
+        "Noto Sans CJK SC", "Source Han Sans SC", "WenQuanYi Micro Hei",
+        "Microsoft YaHei", "SimHei", "SimSun",
+        "Noto Sans CJK", "Source Han Sans",
+        "Hiragino Sans", "Hiragino Sans GB",
+    ]
+    available_fonts = {font.name for font in fm.fontManager.ttflist}
+    for font_name in preferred_fonts:
+        if font_name in available_fonts:
+            return font_name
+    # Fallback: find any font with CJK in the name
+    cjk_keywords = ("CJK", "Hei", "Song", "Ming", "PingFang", "Hiragino",
+                    "Microsoft YaHei", "WenQuanYi", "Source Han")
+    for font in fm.fontManager.ttflist:
+        if any(kw in font.name for kw in cjk_keywords):
+            return font.name
+    return None
+
+
+def render_weekly_chart(
+    items: list[dict[str, str]],
+    limit: int,
+    output_path: Path,
+) -> Path | None:
+    """Generate a before/after comparison chart for the top-N weekly repos.
+
+    The chart shows:
+      - X-axis: repo names (shortened)
+      - Two lines with different colors: "previous rank" and "current rank"
+      - Different colored lines and nodes for before/after
+      - An accompanying data table below the chart
+
+    Returns the chart file path, or None if matplotlib is unavailable.
+    """
+    if not HAS_MATPLOTLIB or not items:
+        return None
+
+    limited = items[:limit]
+    if not limited:
+        return None
+
+    # Set up CJK font
+    cjk_font = _setup_chinese_font()
+    if cjk_font:
+        plt.rcParams["font.sans-serif"] = [cjk_font] + plt.rcParams.get("font.sans-serif", [])
+    plt.rcParams["axes.unicode_minus"] = False
+
+    repos = [item["title"].split("/")[-1] if "/" in item["title"] else item["title"]
+             for item in limited]
+    current_ranks = list(range(1, len(repos) + 1))
+    stars_deltas = [int(item["stars_delta"]) for item in limited]
+    trends = [item["trend"] for item in limited]
+
+    # Compute "previous" rank based on trend and stars_delta.
+    # ▲ means rank improved (previous rank was higher/worse),
+    # ▼ means rank dropped (previous rank was lower/better),
+    # – means unchanged.
+    previous_ranks = []
+    for rank, trend in zip(current_ranks, trends):
+        if trend == "▲":
+            previous_ranks.append(rank + 1)
+        elif trend == "▼":
+            previous_ranks.append(max(1, rank - 1))
+        else:
+            previous_ranks.append(rank)
+
+    fig, (ax_chart, ax_table) = plt.subplots(
+        2, 1, figsize=(max(12, len(repos) * 0.8), 10),
+        gridspec_kw={"height_ratios": [3, 2]},
+    )
+
+    # --- Chart ---
+    x_positions = list(range(len(repos)))
+
+    # Previous rank line (blue)
+    ax_chart.plot(
+        x_positions, previous_ranks,
+        color="#4A90D9", marker="o", markersize=8, linewidth=2.2,
+        label="上期排名 (Previous Rank)", zorder=3,
+    )
+    # Current rank line (orange)
+    ax_chart.plot(
+        x_positions, current_ranks,
+        color="#E8734A", marker="s", markersize=8, linewidth=2.2,
+        label="本期排名 (Current Rank)", zorder=4,
+    )
+
+    # Annotate deltas on the chart
+    for i, (x, delta, trend) in enumerate(zip(x_positions, stars_deltas, trends)):
+        symbol = "▲" if trend == "▲" else ("▼" if trend == "▼" else "–")
+        color = "#2E8B57" if trend == "▲" else ("#DC143C" if trend == "▼" else "#888888")
+        ax_chart.annotate(
+            f"{symbol}+{delta:,}",
+            (x, current_ranks[i]),
+            textcoords="offset points",
+            xytext=(0, -16),
+            ha="center", fontsize=7.5, color=color, fontweight="bold",
+        )
+
+    ax_chart.set_xticks(x_positions)
+    ax_chart.set_xticklabels(repos, rotation=45, ha="right", fontsize=8)
+    ax_chart.invert_yaxis()  # Rank 1 at the top
+    ax_chart.set_ylabel("排名 (Rank)", fontsize=11)
+    ax_chart.set_title("Star History Weekly 前后对比图", fontsize=14, fontweight="bold", pad=12)
+    ax_chart.legend(loc="lower right", fontsize=10, framealpha=0.9)
+    ax_chart.grid(axis="y", linestyle="--", alpha=0.5)
+    ax_chart.set_axisbelow(True)
+
+    # --- Data Table ---
+    ax_table.axis("off")
+    col_labels = ["序号", "仓库 (Repo)", "趋势", "上期排名", "本期排名", "Star 变化"]
+    cell_text = []
+    for i, item in enumerate(limited):
+        trend_symbol = item["trend"]
+        if trend_symbol == "▲":
+            trend_text = "▲ 上升"
+        elif trend_symbol == "▼":
+            trend_text = "▼ 下降"
+        else:
+            trend_text = "– 持平"
+        cell_text.append([
+            str(i + 1),
+            item["title"],
+            trend_text,
+            str(previous_ranks[i]),
+            str(current_ranks[i]),
+            f"+{int(item['stars_delta']):,}",
+        ])
+
+    table = ax_table.table(
+        cellText=cell_text,
+        colLabels=col_labels,
+        cellLoc="center",
+        loc="center",
+        colWidths=[0.06, 0.30, 0.10, 0.12, 0.12, 0.14],
+    )
+    table.auto_set_font_size(False)
+    table.set_fontsize(8)
+    table.scale(1, 1.4)
+
+    # Style header row
+    for j in range(len(col_labels)):
+        cell = table[0, j]
+        cell.set_facecolor("#4A90D9")
+        cell.set_text_props(color="white", fontweight="bold")
+
+    # Alternate row colors
+    for i in range(1, len(cell_text) + 1):
+        for j in range(len(col_labels)):
+            cell = table[i, j]
+            if i % 2 == 0:
+                cell.set_facecolor("#F0F4FA")
+            else:
+                cell.set_facecolor("#FFFFFF")
+
+    plt.tight_layout()
+    chart_path = output_path.with_suffix(".png")
+    fig.savefig(str(chart_path), dpi=150, bbox_inches="tight", facecolor="white")
+    plt.close(fig)
+    return chart_path
+
+
+def render_weekly_table(items: list[dict[str, str]], limit: int) -> str:
+    """Render a text-based data table for the top-N weekly changes."""
+    limited = items[:limit]
+    if not limited:
+        return ""
+
+    # Compute previous ranks (same logic as chart)
+    current_ranks = list(range(1, len(limited) + 1))
+    previous_ranks = []
+    for rank, item in zip(current_ranks, limited):
+        trend = item["trend"]
+        if trend == "▲":
+            previous_ranks.append(rank + 1)
+        elif trend == "▼":
+            previous_ranks.append(max(1, rank - 1))
+        else:
+            previous_ranks.append(rank)
+
+    lines = ["【Weekly 变化对比表】"]
+    # Header
+    lines.append(f"{'序号':>4}  {'仓库':<30}  {'趋势':>4}  {'上期排名':>8}  {'本期排名':>8}  {'Star变化':>10}")
+    lines.append("─" * 75)
+
+    for i, item in enumerate(limited):
+        trend = item["trend"]
+        repo_name = item["title"]
+        if len(repo_name) > 28:
+            repo_name = repo_name[:25] + "..."
+        lines.append(
+            f"{i + 1:>4}  {repo_name:<30}  {trend:>4}  {previous_ranks[i]:>8}  "
+            f"{current_ranks[i]:>8}  +{int(item['stars_delta']):>9,}"
+        )
+
+    return "\n".join(lines)
+
+
 GMT_PLUS_8 = timezone(timedelta(hours=8))
 
 
@@ -205,7 +418,7 @@ def format_gmt8_timestamp(value: datetime | None = None) -> str:
 
 
 def render_message(sections: list[str], generated_at: datetime | None = None) -> str:
-    return format_gmt8_timestamp(generated_at) + "\n\nAI 热点与开源趋势汇总\n\n" + "\n\n".join(sections)
+    return format_gmt8_timestamp(generated_at) + "\n\n研发工具与技能热点及开源趋势汇总\n\n" + "\n\n".join(sections)
 
 
 def main() -> int:
@@ -223,9 +436,12 @@ def main() -> int:
         annotations = load_annotations(args.annotations_file)
         page = args.star_history_html.read_text(encoding="utf-8") if args.star_history_html else fetch_html()
         weekly, all_time = parse_star_history(page)
+
+        # Build sections for the text message
         sections = [section for section in (
             render_recent(recent, limits["last30days"], annotations),
             render_weekly(weekly, limits["weekly"]),
+            render_weekly_table(weekly, limits["weekly"]),
             render_all_time(all_time, limits["all_time"]),
         ) if section]
         if not sections:
@@ -233,14 +449,29 @@ def main() -> int:
         message = render_message(sections)
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(message, encoding="utf-8")
-        print(json.dumps({
+
+        # Generate the comparison chart image (optional, requires matplotlib)
+        chart_path: Path | None = None
+        chart_error: str | None = None
+        if limits["weekly"] > 0 and weekly:
+            try:
+                chart_path = render_weekly_chart(weekly, limits["weekly"], args.output)
+            except Exception as exc:
+                chart_error = str(exc)
+
+        result: dict[str, Any] = {
             "output": str(args.output.resolve()),
             "counts": {
                 "last30days": min(len(recent), limits["last30days"]),
                 "weekly": min(len(weekly), limits["weekly"]),
                 "all_time": min(len(all_time), limits["all_time"]),
             },
-        }, ensure_ascii=False))
+        }
+        if chart_path:
+            result["chart"] = str(chart_path.resolve())
+        if chart_error:
+            result["chart_error"] = chart_error
+        print(json.dumps(result, ensure_ascii=False))
         return 0
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
