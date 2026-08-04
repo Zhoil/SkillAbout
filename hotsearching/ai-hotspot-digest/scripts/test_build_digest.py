@@ -93,8 +93,8 @@ class BuildDigestTest(unittest.TestCase):
 
     def test_stable_render_shape(self):
         recent = [{"title": "AI debt", "url": "https://example.com/a"}]
-        weekly = [{"title": "a/b", "rank": "1", "trend": "–", "stars_delta": "51", "url": "https://github.com/a/b"}]
-        all_time = [{"title": "c/d", "stars": "1000", "url": "https://github.com/c/d"}]
+        weekly = [{"title": "a/b", "rank": "1", "trend": "–", "stars_delta": "51", "url": "https://github.com/a/b", "description": "每周趋势项目。"}]
+        all_time = [{"title": "c/d", "stars": "1000", "url": "https://github.com/c/d", "description": "长期热门项目。"}]
         sections = [
             build_digest.render_recent(recent, 1, {"https://example.com/a": "人工智能公司债务问题受到关注"}),
             build_digest.render_weekly(weekly, 1),
@@ -107,10 +107,12 @@ class BuildDigestTest(unittest.TestCase):
 
 【Star History Weekly】
 1. – a/b +51
+   💡 每周趋势项目。
    🔎 https://github.com/a/b
 
 【Star History All-time】
 1. ：c/d ：1,000 🌟
+   💡 长期热门项目。
    🔎 https://github.com/c/d"""
         self.assertEqual(actual, expected)
         self.assertEqual(actual, "\n\n".join(sections))
@@ -129,8 +131,9 @@ class BuildDigestTest(unittest.TestCase):
         weekly = [{
             "title": "a/b", "rank": "1", "trend": "▲",
             "stars_delta": "51", "url": "https://github.com/a/b",
+            "description": "实用的开发工具。",
         }]
-        all_time = [{"title": "c/d", "stars": "1000", "url": "https://github.com/c/d"}]
+        all_time = [{"title": "c/d", "stars": "1000", "url": "https://github.com/c/d", "description": "热门的开源项目。"}]
         message = build_digest.render_message(["SECTION"], generated_at)
         dashboard = build_digest.render_dashboard(
             recent,
@@ -149,6 +152,37 @@ class BuildDigestTest(unittest.TestCase):
         self.assertIn("prefers-reduced-motion", dashboard)
         self.assertIn("实时刷新", dashboard)
         self.assertIn("refreshDashboard(false)", dashboard)
+        self.assertIn("实用的开发工具。", dashboard)
+        self.assertIn("热门的开源项目。", dashboard)
+
+    def test_repository_descriptions_use_fresh_cache(self):
+        weekly = [{"title": "a/b", "url": "https://github.com/a/b"}]
+        all_time = [{"title": "c/d", "url": "https://github.com/c/d"}]
+        with tempfile.TemporaryDirectory() as directory:
+            cache_path = Path(directory) / "descriptions.json"
+            cache_path.write_text(json.dumps({
+                "a/b": {"description": "Weekly tool", "fetched_at": datetime.now(timezone.utc).isoformat()},
+                "c/d": {"description": "Popular framework.", "fetched_at": datetime.now(timezone.utc).isoformat()},
+            }), encoding="utf-8")
+            with patch.object(build_digest, "fetch_repository_description") as fetch:
+                stats = build_digest.enrich_repository_descriptions(
+                    weekly,
+                    all_time,
+                    1,
+                    1,
+                    cache_path,
+                    {"a/b": "每周工具。", "c/d": "热门框架。"},
+                )
+            fetch.assert_not_called()
+        self.assertEqual(stats, {"requested": 2, "resolved": 2})
+        self.assertEqual(weekly[0]["description"], "每周工具。")
+        self.assertEqual(all_time[0]["description"], "热门框架。")
+
+    def test_repository_description_has_truthful_fallback(self):
+        description = build_digest.repository_description({"title": "owner/project"})
+        self.assertIn("owner/project", description)
+        self.assertIn("owner 维护", description)
+        self.assertTrue(description.endswith("。"))
 
     def test_dashboard_escapes_inline_script_breakout(self):
         generated_at = datetime(2026, 7, 30, tzinfo=timezone.utc)

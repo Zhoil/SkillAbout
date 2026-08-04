@@ -4,9 +4,11 @@
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timedelta, timezone
 import html
 import json
+import os
 from pathlib import Path
 import re
 import sys
@@ -28,6 +30,10 @@ except ImportError:
 
 STAR_HISTORY_URL = "https://www.star-history.com/"
 DEFAULT_COOLDOWN_DAYS = 7
+REPOSITORY_DESCRIPTION_FALLBACK = "GitHub 暂未提供该仓库的项目简介。"
+DEFAULT_REPOSITORY_DESCRIPTIONS_FILE = (
+    Path(__file__).resolve().parent.parent / "references" / "repository-descriptions.zh-CN.json"
+)
 
 
 def positive_limit(value: Any, name: str) -> int:
@@ -252,6 +258,153 @@ def parse_star_history(page: str) -> tuple[list[dict[str, str]], list[dict[str, 
     return weekly, all_time
 
 
+def normalize_repository_description(value: Any) -> str:
+    description = re.sub(r"\s+", " ", str(value or "")).strip()
+    if not description:
+        return REPOSITORY_DESCRIPTION_FALLBACK
+    sentences = re.split(r"(?<=[.!?。！？])\s+", description, maxsplit=1)
+    sentence = sentences[0][:180].rstrip()
+    if sentence[-1:] not in ".!?。！？":
+        sentence += "。" if re.search(r"[\u4e00-\u9fff]", sentence) else "."
+    return sentence
+
+
+def contains_chinese(value: str) -> bool:
+    return bool(re.search(r"[\u4e00-\u9fff]", value))
+
+
+def repository_description(item: dict[str, str]) -> str:
+    description = str(item.get("description") or "").strip()
+    if description and contains_chinese(description):
+        return normalize_repository_description(description)
+    repo = item.get("title", "该仓库")
+    owner = repo.split("/", 1)[0] if "/" in repo else "社区"
+    return f"{repo} 是由 {owner} 维护的开源项目，具体功能请查看仓库 README。"
+
+
+def load_repository_descriptions(path: Path) -> dict[str, str]:
+    document = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(document, dict):
+        raise ValueError("repository descriptions file must be a JSON object")
+    descriptions: dict[str, str] = {}
+    for repo, description in document.items():
+        normalized = normalize_repository_description(description)
+        if not contains_chinese(normalized):
+            raise ValueError(f"repository description must be Chinese: {repo}")
+        descriptions[str(repo)] = normalized
+    return descriptions
+
+
+def fetch_repository_description(repo: str, token: str = "") -> str | None:
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "ai-hotspot-digest/1.0",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    request = Request(f"https://api.github.com/repos/{repo}", headers=headers)
+    try:
+        with urlopen(request, timeout=12) as response:
+            document = json.loads(response.read().decode("utf-8"))
+        raw = document.get("description") if isinstance(document, dict) else None
+        if raw:
+            return normalize_repository_description(raw)
+    except (OSError, ValueError, json.JSONDecodeError):
+        pass
+    page_request = Request(
+        f"https://github.com/{repo}",
+        headers={"User-Agent": "Mozilla/5.0 ai-hotspot-digest/1.0"},
+    )
+    try:
+        with urlopen(page_request, timeout=15) as response:
+            page = response.read().decode("utf-8", "replace")
+        for tag in re.findall(r"<meta\b[^>]+>", page, re.I):
+            if not re.search(r'(?:property|name)=["\'](?:og:description|description)["\']', tag, re.I):
+                continue
+            content = re.search(r'content=["\']([^"\']+)["\']', tag, re.I)
+            if content:
+                description = html.unescape(content.group(1)).strip()
+                generic = f"Contribute to {repo} development"
+                if description and generic.lower() not in description.lower():
+                    return normalize_repository_description(description)
+    except OSError:
+        pass
+    return None
+
+
+def enrich_repository_descriptions(
+    weekly: list[dict[str, str]],
+    all_time: list[dict[str, str]],
+    weekly_limit: int,
+    all_time_limit: int,
+    cache_path: Path,
+    chinese_descriptions: dict[str, str] | None = None,
+) -> dict[str, int]:
+    """Attach official GitHub descriptions, using a seven-day local cache."""
+    cache: dict[str, dict[str, str]] = {}
+    if cache_path.exists():
+        try:
+            loaded = json.loads(cache_path.read_text(encoding="utf-8"))
+            if isinstance(loaded, dict):
+                cache = {str(key): value for key, value in loaded.items() if isinstance(value, dict)}
+        except (OSError, json.JSONDecodeError):
+            cache = {}
+    now = datetime.now(timezone.utc)
+    repos = list(dict.fromkeys(
+        item["title"] for item in weekly[:weekly_limit] + all_time[:all_time_limit]
+    ))
+    chinese_descriptions = chinese_descriptions or {}
+    descriptions: dict[str, str] = {
+        repo: chinese_descriptions[repo] for repo in repos if repo in chinese_descriptions
+    }
+    official_descriptions: dict[str, str] = {}
+    missing: list[str] = []
+    for repo in repos:
+        if repo in descriptions:
+            continue
+        cached = cache.get(repo, {})
+        try:
+            fetched_at = datetime.fromisoformat(cached.get("fetched_at", ""))
+        except ValueError:
+            fetched_at = datetime.min.replace(tzinfo=timezone.utc)
+        if fetched_at.tzinfo is None:
+            fetched_at = fetched_at.replace(tzinfo=timezone.utc)
+        if cached.get("description") and now - fetched_at <= timedelta(days=7):
+            official_descriptions[repo] = normalize_repository_description(cached["description"])
+        else:
+            missing.append(repo)
+
+    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN") or ""
+    if missing:
+        with ThreadPoolExecutor(max_workers=min(6, len(missing))) as executor:
+            futures = {executor.submit(fetch_repository_description, repo, token): repo for repo in missing}
+            for future in as_completed(futures):
+                repo = futures[future]
+                description = future.result()
+                if description:
+                    official_descriptions[repo] = description
+                    cache[repo] = {"description": description, "fetched_at": now.isoformat()}
+
+    for item in weekly[:weekly_limit] + all_time[:all_time_limit]:
+        repo = item["title"]
+        official = official_descriptions.get(repo, "")
+        item["description"] = descriptions.get(repo) or (
+            official if contains_chinese(official) else repository_description(item)
+        )
+    if official_descriptions:
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = cache_path.with_name(f"{cache_path.name}.tmp")
+        temporary.write_text(json.dumps(cache, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        temporary.replace(cache_path)
+    resolved = len({
+        item["title"]
+        for item in weekly[:weekly_limit] + all_time[:all_time_limit]
+        if contains_chinese(item["description"])
+    })
+    return {"requested": len(repos), "resolved": resolved}
+
+
 def load_annotations(path: Path | None) -> dict[str, str]:
     if path is None:
         return {}
@@ -280,6 +433,7 @@ def render_weekly(items: list[dict[str, str]], limit: int) -> str:
     for index, item in enumerate(items[:limit], 1):
         lines.extend([
             f"{index}. {item['trend']} {item['title']} +{int(item['stars_delta']):,}",
+            f"   💡 {repository_description(item)}",
             f"   🔎 {item['url']}",
         ])
     return "\n".join(lines) if limit and items else ""
@@ -290,6 +444,7 @@ def render_all_time(items: list[dict[str, str]], limit: int) -> str:
     for index, item in enumerate(items[:limit], 1):
         lines.extend([
             f"{index}. ：{item['title']} ：{int(item['stars']):,} 🌟",
+            f"   💡 {repository_description(item)}",
             f"   🔎 {item['url']}",
         ])
     return "\n".join(lines) if limit and items else ""
@@ -541,6 +696,7 @@ def render_dashboard(
             "rank": int(item.get("rank", index)),
             "trend": item["trend"],
             "stars_delta": int(item["stars_delta"]),
+            "description": repository_description(item),
         }
         for index, item in enumerate(weekly[:limits["weekly"]], 1)
     ]
@@ -550,6 +706,7 @@ def render_dashboard(
             "title": item["title"],
             "url": item.get("url", ""),
             "stars": int(item["stars"]),
+            "description": repository_description(item),
         }
         for index, item in enumerate(all_time[:limits["all_time"]], 1)
     ]
@@ -623,6 +780,8 @@ def render_dashboard(
     .rank:hover {{ transform:translateX(5px); border-color:rgba(53,242,255,.38); }}
     .rank-no {{ font:700 20px ui-monospace,SFMono-Regular,Menlo,monospace; color:#668da3; }}
     .rank-name {{ min-width:0; color:#e9f7ff; text-decoration:none; font-weight:650; overflow:hidden; text-overflow:ellipsis; }}
+    .rank-info {{ min-width:0; display:grid; gap:5px; }}
+    .rank-description {{ color:#7898aa; font-size:12px; line-height:1.45; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }}
     .bar {{ height:5px; overflow:hidden; border-radius:99px; background:rgba(255,255,255,.06); }}
     .bar i {{ display:block; height:100%; width:var(--w); border-radius:inherit; transform-origin:left; background:linear-gradient(90deg,var(--blue),var(--cyan)); box-shadow:0 0 16px var(--cyan); animation:grow 1s .3s both; }}
     .delta {{ text-align:right; color:var(--lime); font:700 13px ui-monospace,SFMono-Regular,Menlo,monospace; }}
@@ -670,7 +829,7 @@ def render_dashboard(
     const safeUrl=value=>{{ try {{ const u=new URL(value); return ['http:','https:'].includes(u.protocol)?u.href:'#'; }} catch {{ return '#'; }} }};
     const text=(tag,value,cls)=>{{ const el=document.createElement(tag); if(cls) el.className=cls; el.textContent=value; return el; }};
     function renderRecent(rows) {{ const host=$('#recent'); host.replaceChildren(); rows.forEach((row,i)=>{{ const card=text('article','', 'card'); card.style.setProperty('--i',i); card.dataset.search=(row.title+' '+row.description).toLowerCase(); const top=text('div','', 'card-top'); top.append(text('span',String(row.index).padStart(2,'0'),'index'),text('span','HOT / 30D','tag')); card.append(top,text('h3',row.title),text('p',row.description)); const link=text('a','访问来源 ↗'); link.href=safeUrl(row.url); link.target='_blank'; link.rel='noreferrer'; card.append(link); host.append(card); }}); if(!rows.length) host.append(text('div','暂无热点数据','empty')); }}
-    function rankRow(row,i,type,max) {{ const el=text('div','', 'rank'); el.style.setProperty('--i',i); el.dataset.search=row.title.toLowerCase(); el.append(text('span',String(row.index).padStart(2,'0'),'rank-no')); const link=text('a',row.title,'rank-name'); link.href=safeUrl(row.url); link.target='_blank'; link.rel='noreferrer'; el.append(link); const bar=text('span','', 'bar'); const fill=document.createElement('i'); const value=type==='weekly'?row.stars_delta:row.stars; fill.style.setProperty('--w',Math.max(4,value/max*100)+'%'); bar.append(fill); el.append(bar); const trend=type==='weekly'?row.trend+' +'+fmt(row.stars_delta):fmt(row.stars)+' 🌟'; const cls=row.trend==='▼'?'delta trend-down':row.trend==='–'?'delta trend-flat':'delta'; el.append(text('span',trend,cls)); return el; }}
+    function rankRow(row,i,type,max) {{ const el=text('div','', 'rank'); el.style.setProperty('--i',i); el.dataset.search=(row.title+' '+row.description).toLowerCase(); el.append(text('span',String(row.index).padStart(2,'0'),'rank-no')); const info=text('div','', 'rank-info'); const link=text('a',row.title,'rank-name'); link.href=safeUrl(row.url); link.target='_blank'; link.rel='noreferrer'; info.append(link,text('span',row.description,'rank-description')); el.append(info); const bar=text('span','', 'bar'); const fill=document.createElement('i'); const value=type==='weekly'?row.stars_delta:row.stars; fill.style.setProperty('--w',Math.max(4,value/max*100)+'%'); bar.append(fill); el.append(bar); const trend=type==='weekly'?row.trend+' +'+fmt(row.stars_delta):fmt(row.stars)+' 🌟'; const cls=row.trend==='▼'?'delta trend-down':row.trend==='–'?'delta trend-flat':'delta'; el.append(text('span',trend,cls)); return el; }}
     function renderRanks(selector,rows,type) {{ const host=$(selector); host.replaceChildren(); const max=Math.max(1,...rows.map(r=>type==='weekly'?r.stars_delta:r.stars)); rows.forEach((row,i)=>host.append(rankRow(row,i,type,max))); if(!rows.length) host.append(text('div','暂无榜单数据','empty')); }}
     function applyData(next,animate=false) {{ data=next; renderRecent(data.recent); renderRanks('#weekly',data.weekly,'weekly'); renderRanks('#all-time',data.all_time,'all-time'); $('#all-time-section').hidden=!data.all_time.length; $('#recent-count').textContent=fmt(data.recent.length); $('#weekly-count').textContent=fmt(data.weekly.length); $('#star-sum').textContent=fmt(data.weekly.reduce((n,r)=>n+r.stars_delta,0)); $('#generated').textContent='GENERATED · '+data.generated_at; $('#rotation').textContent='ROTATION · '+data.cooldown.days+'D COOLDOWN · '+data.cooldown.excluded+' FILTERED'; $('#terminal-text').textContent=data.message; $('#search').dispatchEvent(new Event('input')); if(animate) {{ const dashboard=$('#dashboard'); dashboard.style.animation='data-flash .7s ease'; setTimeout(()=>dashboard.style.animation='',720); }} }}
     applyData(data);
@@ -692,6 +851,12 @@ def main() -> int:
     parser.add_argument("--config", required=True, type=Path)
     parser.add_argument("--last30days-file", required=True, type=Path)
     parser.add_argument("--annotations-file", type=Path)
+    parser.add_argument(
+        "--repository-descriptions-file",
+        type=Path,
+        default=DEFAULT_REPOSITORY_DESCRIPTIONS_FILE,
+        help="JSON object mapping owner/repo to a one-sentence Chinese description.",
+    )
     parser.add_argument("--star-history-html", type=Path)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument(
@@ -719,6 +884,17 @@ def main() -> int:
         )
         page = args.star_history_html.read_text(encoding="utf-8") if args.star_history_html else fetch_html()
         weekly, all_time = parse_star_history(page)
+        chinese_repository_descriptions = load_repository_descriptions(
+            args.repository_descriptions_file
+        )
+        description_stats = enrich_repository_descriptions(
+            weekly,
+            all_time,
+            limits["weekly"],
+            limits["all_time"],
+            args.output.parent / ".github-repo-descriptions.json",
+            chinese_repository_descriptions,
+        )
 
         # Build sections for the text message
         sections = [section for section in (
@@ -774,6 +950,7 @@ def main() -> int:
                 "excluded": cooldown_excluded,
                 "state": str(state_path.resolve()),
             },
+            "repository_descriptions": description_stats,
             "counts": {
                 "last30days": len(selected_recent),
                 "weekly": min(len(weekly), limits["weekly"]),

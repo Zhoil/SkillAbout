@@ -51,7 +51,7 @@ python3 scripts/build_digest.py \
 
 生成完成后会启动仅监听 `127.0.0.1` 的无缓存预览服务，并使用系统默认浏览器打开同名 HTML 动态看板。看板提供“实时刷新”按钮，并每 30 秒静默检查一次最新生成结果；发现变化时仅热更新数据区域，不整页刷新。自动化或无桌面环境可增加 `--no-open-dashboard`，仅生成文件而不启动服务或打开浏览器。
 
-脚本从 `https://www.star-history.com/` 提取 Weekly 的趋势和 Star 变化，并从 All-time 提取 Star 总数。Weekly 固定写成 `序号. 趋势符号 仓库名 +变化量`，例如 `2. ▲ owner/repo +12`；All-time 固定写成 `序号. ：仓库名 ：总数 🌟`。两类链接的下一行固定使用 `🔎 URL`。趋势使用 `–`（持平）、`▲`（上升）、`▼`（下降），不得输出"排名""趋势""Star 变化""数据源"等标签或尾行。若任一榜单无法识别，停止发送并报告错误，不得用臆测数据补齐。需要离线验证时可用 `--star-history-html <HTML文件>`。
+脚本从 `https://www.star-history.com/` 提取 Weekly 的趋势和 Star 变化，并从 All-time 提取 Star 总数。Weekly 固定写成 `序号. 趋势符号 仓库名 +变化量`，例如 `2. ▲ owner/repo +12`；All-time 固定写成 `序号. ：仓库名 ：总数 🌟`。每个仓库下一行使用 `💡 中文一句话介绍`，再下一行使用 `🔎 URL`。简介优先读取 `references/repository-descriptions.zh-CN.json`；新仓库可通过 `--repository-descriptions-file` 提供中文映射。未配置时只输出基于仓库归属的中文事实性说明，不直接展示英文 description，也不臆造功能。趋势使用 `–`（持平）、`▲`（上升）、`▼`（下降），不得输出"排名""趋势""Star 变化""数据源"等标签或尾行。若任一榜单无法识别，停止发送并报告错误，不得用臆测数据补齐。需要离线验证时可用 `--star-history-html <HTML文件>`。
 
 **对比图表生成：** 当 `limits.weekly > 0` 且安装了 matplotlib 时，脚本会自动在消息预览文件同目录下生成一张 PNG 对比图（文件名与预览文件相同，后缀改为 `.png`），内容包含：
 - 上半部分：前后两期排名对比折线图，蓝色圆点线表示上期排名，橙色方点线表示本期排名，Y 轴倒置（排名 1 在最上方），每个数据点标注趋势符号和 Star 变化量。
@@ -62,9 +62,9 @@ python3 scripts/build_digest.py \
 始终采用脚本内置的固定模板，不让模型自行排版。消息第一行固定为生成时的 GMT+8 时间：`🕒 YYYY-MM-DD HH:mm:ss GMT+8`。每类字段顺序固定：
 
 - 热点：`序号. 标题 ：中文描述` → 下一行 `🌐 URL`。
-- Weekly：趋势符号 + 仓库 + 变化量 → 下一行 `🔎 URL`。
+- Weekly：趋势符号 + 仓库 + 变化量 → 下一行 `💡 一句话介绍` → 下一行 `🔎 URL`。
 - Weekly 对比表：纯文本表格，含上期/本期排名和 Star 变化。
-- All-time：仓库 → `总数 🌟` → 下一行 `🔎 URL`。
+- All-time：仓库 → `总数 🌟` → 下一行 `💡 一句话介绍` → 下一行 `🔎 URL`。
 
 ## 3. 解析推送目标
 
@@ -130,6 +130,7 @@ python3 scripts/fetch_hotspots.py \
 - 保留来源链接；同一类型内按原始榜单/热度顺序排列。
 - 确认每条热点都有中文描述；缺失时脚本会显示固定占位语，发送前必须补齐并重新生成。
 - 确认 Weekly 每条都有趋势符号和 Star 增量，All-time 每条都有 Star 总数。
+- 确认 Weekly 和 All-time 的每个仓库均有一句中文简介，英文官方 description 不得直接进入最终内容。
 - 确认 Weekly 对比图（PNG）已生成（需 matplotlib）；若生成失败，脚本会在 JSON 输出中报告 `chart_error`，但不影响文本消息的生成。
 - 对同一输入重复运行时，标题、章节、字段顺序、缩进和数字格式必须完全一致。
 - 不输出 token、cookie 或内部鉴权信息。

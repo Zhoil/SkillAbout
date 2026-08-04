@@ -1,0 +1,16 @@
+{
+  "mattpocock/skills": "面向专业软件工程师的可复用 AI 编码技能集合。",
+  "stablyai/orca": "用于管理并行 AI Agent 集群的智能体开发环境。",
+  "earendil-works/pi": "提供统一 LLM API、Agent 循环、终端界面和编码 CLI 的 AI Agent 工具包。",
+  "graphify-labs/graphify": "将代码、文档、SQL 模式、配置和 PDF 转换为可查询的知识图谱。",
+  "diegosouzapw/omniroute": "帮助开发者持续使用 AI 编码能力的模型路由与开发工具。",
+  "microsoft/ai-for-beginners": "微软开源的人工智能入门课程，包含基础概念、实践课程与示例代码。",
+  "dietrichgebert/ponytail": "帮助 AI Agent 以资深开发者思路优先寻找简洁可维护方案的工具。",
+  "codecrafters-io/build-your-own-x": "通过从零复刻热门技术项目，帮助开发者掌握其底层编程原理。",
+  "sindresorhus/awesome": "汇集各类主题优质资源与工具的精选列表索引。",
+  "public-apis/public-apis": "收集可用于软件和 Web 开发的免费公共 API 列表。",
+  "freeCodeCamp/freeCodeCamp": "freeCodeCamp 的开源代码库与免费编程课程平台。",
+  "EbookFoundation/free-programming-books": "收集免费编程书籍、课程及其他学习资源的开放列表。",
+  "openclaw/openclaw": "可自行部署和扩展的个人 AI 助手。",
+  "nilbuild/developer-roadmap": "提供开发者职业成长所需的交互式路线图、指南和学习内容。"
+}

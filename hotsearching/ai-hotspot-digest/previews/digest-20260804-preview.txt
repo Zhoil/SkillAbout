@@ -1,4 +1,4 @@
-🕒 2026-08-04 12:48:57 GMT+8
+🕒 2026-08-04 13:42:02 GMT+8
 
 研发工具与技能热点及开源趋势汇总
 
@@ -26,18 +26,25 @@
 
 【Star History Weekly】
 1. – mattpocock/skills +36
+   💡 面向专业软件工程师的可复用 AI 编码技能集合。
    🔎 https://github.com/mattpocock/skills
 2. – stablyai/orca +23
+   💡 用于管理并行 AI Agent 集群的智能体开发环境。
    🔎 https://github.com/stablyai/orca
 3. – earendil-works/pi +19
+   💡 提供统一 LLM API、Agent 循环、终端界面和编码 CLI 的 AI Agent 工具包。
    🔎 https://github.com/earendil-works/pi
 4. – graphify-labs/graphify +16
+   💡 将代码、文档、SQL 模式、配置和 PDF 转换为可查询的知识图谱。
    🔎 https://github.com/graphify-labs/graphify
 5. ▲ diegosouzapw/omniroute +16
+   💡 帮助开发者持续使用 AI 编码能力的模型路由与开发工具。
    🔎 https://github.com/diegosouzapw/omniroute
 6. – microsoft/ai-for-beginners +16
+   💡 微软开源的人工智能入门课程，包含基础概念、实践课程与示例代码。
    🔎 https://github.com/microsoft/ai-for-beginners
 7. – dietrichgebert/ponytail +15
+   💡 帮助 AI Agent 以资深开发者思路优先寻找简洁可维护方案的工具。
    🔎 https://github.com/dietrichgebert/ponytail
 
 【Weekly 变化对比表】
@@ -53,16 +60,23 @@
 
 【Star History All-time】
 1. ：codecrafters-io/build-your-own-x ：535,460 🌟
+   💡 通过从零复刻热门技术项目，帮助开发者掌握其底层编程原理。
    🔎 https://github.com/codecrafters-io/build-your-own-x
 2. ：sindresorhus/awesome ：491,856 🌟
+   💡 汇集各类主题优质资源与工具的精选列表索引。
    🔎 https://github.com/sindresorhus/awesome
 3. ：public-apis/public-apis ：454,198 🌟
+   💡 收集可用于软件和 Web 开发的免费公共 API 列表。
    🔎 https://github.com/public-apis/public-apis
 4. ：freeCodeCamp/freeCodeCamp ：453,403 🌟
+   💡 freeCodeCamp 的开源代码库与免费编程课程平台。
    🔎 https://github.com/freeCodeCamp/freeCodeCamp
 5. ：EbookFoundation/free-programming-books ：393,618 🌟
+   💡 收集免费编程书籍、课程及其他学习资源的开放列表。
    🔎 https://github.com/EbookFoundation/free-programming-books
 6. ：openclaw/openclaw ：385,006 🌟
+   💡 可自行部署和扩展的个人 AI 助手。
    🔎 https://github.com/openclaw/openclaw
 7. ：nilbuild/developer-roadmap ：363,446 🌟
+   💡 提供开发者职业成长所需的交互式路线图、指南和学习内容。
    🔎 https://github.com/nilbuild/developer-roadmap
