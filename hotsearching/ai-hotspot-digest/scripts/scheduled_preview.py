@@ -16,7 +16,8 @@ import subprocess
 import sys
 import time
 from typing import Any
-import webbrowser
+
+from preview_browser import open_dashboard
 
 
 GMT_PLUS_8 = timezone(timedelta(hours=8))
@@ -116,10 +117,7 @@ def send_reminder(preview: Path) -> str:
 
 def open_preview_dashboard(preview: Path) -> bool:
     dashboard = preview.with_suffix(".html")
-    try:
-        return webbrowser.open(dashboard.resolve().as_uri(), new=2)
-    except (OSError, webbrowser.Error):
-        return False
+    return open_dashboard(dashboard)
 
 
 def main() -> int:

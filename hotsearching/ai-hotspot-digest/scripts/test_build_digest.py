@@ -1,11 +1,12 @@
 import json
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
 
 import build_digest
+import preview_browser
 
 
 def _make_weekly_items(count: int = 5) -> list[dict[str, str]]:
@@ -25,6 +26,43 @@ def _make_weekly_items(count: int = 5) -> list[dict[str, str]]:
 
 
 class BuildDigestTest(unittest.TestCase):
+    def test_hotspot_cooldown_rotates_after_day_boundary(self):
+        items = [
+            {"title": title, "url": f"https://example.com/{title.lower()}"}
+            for title in ("A", "B", "C", "D")
+        ]
+        shown: dict[str, str] = {}
+        first, excluded = build_digest.select_recent_with_cooldown(
+            items, 2, shown, date(2026, 8, 4), 7
+        )
+        self.assertEqual([item["title"] for item in first], ["A", "B"])
+        self.assertEqual(excluded, 0)
+
+        with tempfile.TemporaryDirectory() as directory:
+            state_path = Path(directory) / "cooldown.json"
+            build_digest.save_cooldown_state(
+                state_path, shown, first, date(2026, 8, 4), 7
+            )
+            shown = build_digest.load_cooldown_state(state_path)
+
+        same_day, excluded = build_digest.select_recent_with_cooldown(
+            items, 2, shown, date(2026, 8, 4), 7
+        )
+        self.assertEqual([item["title"] for item in same_day], ["A", "B"])
+        self.assertEqual(excluded, 0)
+
+        next_day, excluded = build_digest.select_recent_with_cooldown(
+            items, 2, shown, date(2026, 8, 5), 7
+        )
+        self.assertEqual([item["title"] for item in next_day], ["C", "D"])
+        self.assertEqual(excluded, 2)
+
+        after_cooldown, excluded = build_digest.select_recent_with_cooldown(
+            items, 2, shown, date(2026, 8, 11), 7
+        )
+        self.assertEqual([item["title"] for item in after_cooldown], ["A", "B"])
+        self.assertEqual(excluded, 0)
+
     def test_parse_star_history_and_limits(self):
         page = """<button>Weekly</button><button>All-time</button><ol>
         <li class="relative group"><a href="/foo/one"><span class="text-xs text-gray-400 w">1</span><span title="Up 2">▲</span><span class="text-xs shrink-0 accent-text">+1,234</span></a></li>
@@ -109,6 +147,8 @@ class BuildDigestTest(unittest.TestCase):
         self.assertIn("研发智能体获得新能力", dashboard)
         self.assertIn("2026-07-30 11:03:00 GMT+8", dashboard)
         self.assertIn("prefers-reduced-motion", dashboard)
+        self.assertIn("实时刷新", dashboard)
+        self.assertIn("refreshDashboard(false)", dashboard)
 
     def test_dashboard_escapes_inline_script_breakout(self):
         generated_at = datetime(2026, 7, 30, tzinfo=timezone.utc)
@@ -127,10 +167,13 @@ class BuildDigestTest(unittest.TestCase):
 
     def test_open_dashboard_uses_default_browser(self):
         dashboard = Path("/tmp/digest preview.html")
-        with patch.object(build_digest.webbrowser, "open", return_value=True) as browser_open:
-            self.assertTrue(build_digest.open_dashboard(dashboard))
+        with (
+            patch.object(preview_browser, "ensure_preview_server", return_value="http://127.0.0.1:8888"),
+            patch.object(preview_browser.webbrowser, "open", return_value=True) as browser_open,
+        ):
+            self.assertTrue(preview_browser.open_dashboard(dashboard))
         url = browser_open.call_args.args[0]
-        self.assertTrue(url.startswith("file://"))
+        self.assertTrue(url.startswith("http://127.0.0.1:8888/"))
         self.assertIn("digest%20preview.html", url)
         self.assertEqual(browser_open.call_args.kwargs, {"new": 2})
 

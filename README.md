@@ -68,7 +68,7 @@ python3 hotsearching/ai-hotspot-digest/scripts/push_digest.py \
   --message-file /tmp/digest-preview.txt
 ```
 
-生成预览后会自动在默认浏览器中打开同名 HTML 动态看板；自动化场景可增加 `--no-open-dashboard`。
+生成预览后会通过仅监听 `127.0.0.1` 的本地服务，在默认浏览器中打开同名 HTML 动态看板。页面支持按钮实时刷新，并每 30 秒静默检查最新生成结果；数据变化时只更新看板内容，不整页跳转。自动化场景可增加 `--no-open-dashboard`。
 
 ### 推送适配器配置
 
@@ -179,6 +179,19 @@ python3 hotsearching/ai-hotspot-digest/scripts/fetch_hotspots.py \
   --skill-dir hotsearching/last30days \
   --output /tmp/ai-hotspots.json
 ```
+
+### 热点展示冷却期
+
+近 30 天热点默认按来源 URL 启用 7 天冷却：同一天重复生成保持稳定，从第二天起不再展示过去 7 天出现过的热点，优先补入其他候选。状态默认保存在预览目录的 `.hotspot-cooldown.json`；可在配置中调整：
+
+```json
+"cooldown": {
+  "days": 7,
+  "state_file": ""
+}
+```
+
+候选不足时会减少实际展示条数，不会提前复用冷却中的热点。
 
 ### 每日定时生成预览
 

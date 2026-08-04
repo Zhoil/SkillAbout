@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import argparse
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 import html
 import json
 from pathlib import Path
@@ -13,7 +13,8 @@ import sys
 from typing import Any
 from urllib.parse import urljoin
 from urllib.request import Request, urlopen
-import webbrowser
+
+from preview_browser import dashboard_url, open_dashboard
 
 try:
     import matplotlib
@@ -26,6 +27,7 @@ except ImportError:
 
 
 STAR_HISTORY_URL = "https://www.star-history.com/"
+DEFAULT_COOLDOWN_DAYS = 7
 
 
 def positive_limit(value: Any, name: str) -> int:
@@ -39,7 +41,93 @@ def load_config(path: Path) -> dict[str, Any]:
     limits = config.get("limits", {})
     for name in ("last30days", "weekly", "all_time"):
         positive_limit(limits.get(name), name)
+    cooldown = config.get("cooldown", {})
+    if not isinstance(cooldown, dict):
+        raise ValueError("cooldown must be a JSON object")
+    days = cooldown.get("days", DEFAULT_COOLDOWN_DAYS)
+    if isinstance(days, bool) or not isinstance(days, int) or days < 1:
+        raise ValueError("cooldown.days must be a positive integer")
     return config
+
+
+def cooldown_state_path(config: dict[str, Any], output: Path) -> Path:
+    configured = str(config.get("cooldown", {}).get("state_file") or "").strip()
+    if not configured:
+        return output.parent / ".hotspot-cooldown.json"
+    path = Path(configured).expanduser()
+    return path if path.is_absolute() else output.parent / path
+
+
+def load_cooldown_state(path: Path) -> dict[str, str]:
+    if not path.exists():
+        return {}
+    document = json.loads(path.read_text(encoding="utf-8"))
+    shown = document.get("shown") if isinstance(document, dict) else None
+    if not isinstance(shown, dict):
+        raise ValueError("cooldown state must contain a shown object")
+    result: dict[str, str] = {}
+    for url, shown_on in shown.items():
+        try:
+            date.fromisoformat(str(shown_on))
+        except ValueError as exc:
+            raise ValueError(f"invalid cooldown date for {url}: {shown_on}") from exc
+        result[str(url)] = str(shown_on)
+    return result
+
+
+def select_recent_with_cooldown(
+    items: list[dict[str, str]],
+    limit: int,
+    shown: dict[str, str],
+    current_date: date,
+    days: int = DEFAULT_COOLDOWN_DAYS,
+) -> tuple[list[dict[str, str]], int]:
+    """Keep same-day output stable and suppress URLs shown in prior cooldown days."""
+    if not limit:
+        return [], 0
+    today = current_date.isoformat()
+    by_url = {item.get("url", ""): item for item in items if item.get("url")}
+    selected = [by_url[url] for url, shown_on in shown.items() if shown_on == today and url in by_url]
+    selected_urls = {item["url"] for item in selected}
+    excluded = 0
+    for item in items:
+        url = item.get("url", "")
+        if not url or url in selected_urls:
+            continue
+        shown_on = shown.get(url)
+        if shown_on:
+            age = (current_date - date.fromisoformat(shown_on)).days
+            if 0 < age < days or age < 0:
+                excluded += 1
+                continue
+        if len(selected) < limit:
+            selected.append(item)
+            selected_urls.add(url)
+    return selected[:limit], excluded
+
+
+def save_cooldown_state(
+    path: Path,
+    shown: dict[str, str],
+    selected: list[dict[str, str]],
+    current_date: date,
+    days: int,
+) -> None:
+    today = current_date.isoformat()
+    for item in selected:
+        if item.get("url"):
+            shown[item["url"]] = today
+    retention_days = max(30, days * 4)
+    retained = {
+        url: shown_on
+        for url, shown_on in shown.items()
+        if (current_date - date.fromisoformat(shown_on)).days <= retention_days
+    }
+    payload = {"version": 1, "cooldown_days": days, "shown": retained}
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f"{path.name}.tmp")
+    temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    temporary.replace(path)
 
 
 def strings_from_json(value: Any) -> list[dict[str, str]]:
@@ -431,6 +519,8 @@ def render_dashboard(
     annotations: dict[str, str],
     message: str,
     generated_at: datetime | None = None,
+    cooldown_days: int = DEFAULT_COOLDOWN_DAYS,
+    cooldown_excluded: int = 0,
 ) -> str:
     """Render a self-contained, animated HTML dashboard for the digest."""
     current = (generated_at or datetime.now(timezone.utc)).astimezone(GMT_PLUS_8)
@@ -469,6 +559,7 @@ def render_dashboard(
         "weekly": weekly_rows,
         "all_time": all_time_rows,
         "message": message,
+        "cooldown": {"days": cooldown_days, "excluded": cooldown_excluded},
     }, ensure_ascii=False).replace("&", "\\u0026").replace("<", "\\u003c").replace(">", "\\u003e")
     terminal_fallback = html.escape(message)
     return f'''<!doctype html>
@@ -507,6 +598,8 @@ def render_dashboard(
     button,.search {{ border:1px solid transparent; border-radius:10px; color:var(--muted); background:transparent; font:inherit; font-size:13px; font-weight:600; }}
     button {{ padding:10px 15px; cursor:pointer; transition:.25s ease; }}
     button:hover,button.active {{ color:#fff; border-color:rgba(53,242,255,.22); background:rgba(53,242,255,.1); }}
+    .refresh-icon {{ display:inline-block; margin-right:6px; }}
+    #refresh.refreshing .refresh-icon {{ animation:spin .8s linear infinite; }}
     .search {{ min-width:240px; padding:10px 14px; outline:0; border-color:var(--line); }}
     .search:focus {{ border-color:var(--cyan); box-shadow:0 0 0 3px rgba(53,242,255,.08); }}
     .view[hidden] {{ display:none; }}
@@ -545,6 +638,8 @@ def render_dashboard(
     @keyframes orbit {{ to {{ transform:rotate(360deg); }} }}
     @keyframes reveal {{ from {{ opacity:0; transform:translateY(14px); }} }}
     @keyframes grow {{ from {{ transform:scaleX(0); }} }}
+    @keyframes spin {{ to {{ transform:rotate(360deg); }} }}
+    @keyframes data-flash {{ 50% {{ border-color:rgba(53,242,255,.72); box-shadow:0 0 28px rgba(53,242,255,.12); }} }}
     @media (max-width:820px) {{ .hero {{ grid-template-columns:1fr; }} .hero-side {{ grid-template-columns:repeat(3,1fr); }} .metric {{ padding:12px; }} .cards {{ grid-template-columns:1fr; }} .rank {{ grid-template-columns:42px 1fr 90px; }} .bar {{ display:none; }} .toolbar {{ align-items:stretch; flex-direction:column; }} .search {{ width:100%; min-width:0; }} }}
     @media (max-width:520px) {{ .shell {{ width:min(100% - 20px,1400px); padding-top:18px; }} .hero {{ padding:28px 20px; border-radius:20px; }} .hero-side {{ grid-template-columns:1fr; }} .metric b {{ font-size:28px; }} .topbar .live span {{ display:none; }} .tabs button {{ padding:9px 10px; }} .rank {{ padding:13px 12px; gap:8px; }} footer {{ flex-direction:column; }} }}
     @media (prefers-reduced-motion:reduce) {{ *,*::before,*::after {{ animation:none!important; scroll-behavior:auto!important; transition:none!important; }} }}
@@ -558,41 +653,38 @@ def render_dashboard(
       <div><div class="eyebrow">DAILY INTELLIGENCE / GMT+8</div><h1>研发热点与<br><span>开源趋势脉冲</span></h1><p class="lead">聚合近 30 天研发工具、AI 技能与开源项目动量。浏览动态看板，或切换终端视图读取可复制的完整原始内容。</p></div>
       <div class="hero-side"><div class="metric"><b id="recent-count">0</b><span>HOT SIGNALS</span></div><div class="metric"><b id="weekly-count">0</b><span>WEEKLY MOVERS</span></div><div class="metric"><b id="star-sum">0</b><span>WEEKLY STAR GAIN</span></div></div>
     </section>
-    <div class="toolbar"><div class="tabs"><button class="active" data-view="dashboard">动态看板</button><button data-view="terminal">终端内容</button><button id="copy">复制文本</button></div><input id="search" class="search" type="search" placeholder="搜索仓库、工具或描述…" aria-label="搜索内容"></div>
+    <div class="toolbar"><div class="tabs"><button class="active" data-view="dashboard">动态看板</button><button data-view="terminal">终端内容</button><button id="refresh"><span class="refresh-icon">↻</span><span class="refresh-label">实时刷新</span></button><button id="copy">复制文本</button></div><input id="search" class="search" type="search" placeholder="搜索仓库、工具或描述…" aria-label="搜索内容"></div>
     <div id="dashboard" class="view">
       <section class="section"><div class="section-head"><div><div class="section-kicker">01 / FRESH SIGNALS</div><h2>近 30 天热点</h2></div></div><div id="recent" class="cards"></div></section>
       <section class="section"><div class="section-head"><div><div class="section-kicker">02 / VELOCITY INDEX</div><h2>Weekly 动量榜</h2></div></div><div id="weekly" class="rank-list"></div></section>
       <section id="all-time-section" class="section"><div class="section-head"><div><div class="section-kicker">03 / LONG-RANGE SIGNAL</div><h2>All-time 星标榜</h2></div></div><div id="all-time" class="rank-list"></div></section>
     </div>
     <div id="terminal" class="view" hidden><div class="terminal"><pre id="terminal-text"></pre></div></div>
-    <footer><span id="generated"></span><span>STATIC · PRIVATE · ZERO DEPENDENCIES</span></footer>
+    <footer><span id="generated"></span><span id="rotation"></span><span>STATIC · PRIVATE · ZERO DEPENDENCIES</span></footer>
   </main>
   <noscript><div class="shell"><div class="terminal"><pre>{terminal_fallback}</pre></div></div></noscript>
   <script id="digest-data" type="application/json">{payload}</script>
   <script>
-    const data=JSON.parse(document.querySelector('#digest-data').textContent);
+    let data=JSON.parse(document.querySelector('#digest-data').textContent), refreshPending=false;
     const $=s=>document.querySelector(s), fmt=n=>new Intl.NumberFormat('zh-CN').format(n);
     const safeUrl=value=>{{ try {{ const u=new URL(value); return ['http:','https:'].includes(u.protocol)?u.href:'#'; }} catch {{ return '#'; }} }};
     const text=(tag,value,cls)=>{{ const el=document.createElement(tag); if(cls) el.className=cls; el.textContent=value; return el; }};
     function renderRecent(rows) {{ const host=$('#recent'); host.replaceChildren(); rows.forEach((row,i)=>{{ const card=text('article','', 'card'); card.style.setProperty('--i',i); card.dataset.search=(row.title+' '+row.description).toLowerCase(); const top=text('div','', 'card-top'); top.append(text('span',String(row.index).padStart(2,'0'),'index'),text('span','HOT / 30D','tag')); card.append(top,text('h3',row.title),text('p',row.description)); const link=text('a','访问来源 ↗'); link.href=safeUrl(row.url); link.target='_blank'; link.rel='noreferrer'; card.append(link); host.append(card); }}); if(!rows.length) host.append(text('div','暂无热点数据','empty')); }}
     function rankRow(row,i,type,max) {{ const el=text('div','', 'rank'); el.style.setProperty('--i',i); el.dataset.search=row.title.toLowerCase(); el.append(text('span',String(row.index).padStart(2,'0'),'rank-no')); const link=text('a',row.title,'rank-name'); link.href=safeUrl(row.url); link.target='_blank'; link.rel='noreferrer'; el.append(link); const bar=text('span','', 'bar'); const fill=document.createElement('i'); const value=type==='weekly'?row.stars_delta:row.stars; fill.style.setProperty('--w',Math.max(4,value/max*100)+'%'); bar.append(fill); el.append(bar); const trend=type==='weekly'?row.trend+' +'+fmt(row.stars_delta):fmt(row.stars)+' 🌟'; const cls=row.trend==='▼'?'delta trend-down':row.trend==='–'?'delta trend-flat':'delta'; el.append(text('span',trend,cls)); return el; }}
     function renderRanks(selector,rows,type) {{ const host=$(selector); host.replaceChildren(); const max=Math.max(1,...rows.map(r=>type==='weekly'?r.stars_delta:r.stars)); rows.forEach((row,i)=>host.append(rankRow(row,i,type,max))); if(!rows.length) host.append(text('div','暂无榜单数据','empty')); }}
-    renderRecent(data.recent); renderRanks('#weekly',data.weekly,'weekly'); renderRanks('#all-time',data.all_time,'all-time');
-    if(!data.all_time.length) $('#all-time-section').hidden=true;
-    $('#recent-count').textContent=fmt(data.recent.length); $('#weekly-count').textContent=fmt(data.weekly.length); $('#star-sum').textContent=fmt(data.weekly.reduce((n,r)=>n+r.stars_delta,0)); $('#generated').textContent='GENERATED · '+data.generated_at; $('#terminal-text').textContent=data.message;
+    function applyData(next,animate=false) {{ data=next; renderRecent(data.recent); renderRanks('#weekly',data.weekly,'weekly'); renderRanks('#all-time',data.all_time,'all-time'); $('#all-time-section').hidden=!data.all_time.length; $('#recent-count').textContent=fmt(data.recent.length); $('#weekly-count').textContent=fmt(data.weekly.length); $('#star-sum').textContent=fmt(data.weekly.reduce((n,r)=>n+r.stars_delta,0)); $('#generated').textContent='GENERATED · '+data.generated_at; $('#rotation').textContent='ROTATION · '+data.cooldown.days+'D COOLDOWN · '+data.cooldown.excluded+' FILTERED'; $('#terminal-text').textContent=data.message; $('#search').dispatchEvent(new Event('input')); if(animate) {{ const dashboard=$('#dashboard'); dashboard.style.animation='data-flash .7s ease'; setTimeout(()=>dashboard.style.animation='',720); }} }}
+    applyData(data);
     document.querySelectorAll('[data-view]').forEach(btn=>btn.addEventListener('click',()=>{{ document.querySelectorAll('[data-view]').forEach(x=>x.classList.toggle('active',x===btn)); document.querySelectorAll('.view').forEach(x=>x.hidden=x.id!==btn.dataset.view); $('#search').hidden=btn.dataset.view==='terminal'; }}));
     $('#copy').addEventListener('click',async e=>{{ try {{ await navigator.clipboard.writeText(data.message); e.currentTarget.textContent='已复制 ✓'; setTimeout(()=>e.currentTarget.textContent='复制文本',1400); }} catch {{ e.currentTarget.textContent='复制失败'; }} }});
+    async function refreshDashboard(manual=false) {{ if(refreshPending) return; refreshPending=true; const button=$('#refresh'), label=button.querySelector('.refresh-label'); if(manual) {{ button.classList.add('refreshing'); label.textContent='同步中'; }} try {{ const url=new URL(location.href); url.searchParams.set('_refresh',Date.now()); const controller=new AbortController(); const timeout=setTimeout(()=>controller.abort(),8000); const response=await fetch(url,{{cache:'no-store',signal:controller.signal}}); clearTimeout(timeout); if(!response.ok) throw new Error('refresh failed'); const documentText=await response.text(); const nextDocument=new DOMParser().parseFromString(documentText,'text/html'); const payload=nextDocument.querySelector('#digest-data'); if(!payload) throw new Error('missing digest data'); const next=JSON.parse(payload.textContent); const changed=next.generated_at!==data.generated_at||next.message!==data.message; if(changed) applyData(next,true); if(manual) label.textContent=changed?'已更新':'已是最新'; }} catch(error) {{ if(manual) label.textContent='稍后重试'; }} finally {{ refreshPending=false; if(manual) {{ button.classList.remove('refreshing'); setTimeout(()=>label.textContent='实时刷新',1600); }} }} }}
+    $('#refresh').addEventListener('click',()=>refreshDashboard(true));
     $('#search').addEventListener('input',e=>{{ const q=e.target.value.trim().toLowerCase(); document.querySelectorAll('[data-search]').forEach(el=>el.hidden=q&&!el.dataset.search.includes(q)); }});
     document.addEventListener('pointermove',e=>document.querySelectorAll('.card').forEach(card=>{{ const r=card.getBoundingClientRect(); card.style.setProperty('--x',e.clientX-r.left+'px'); card.style.setProperty('--y',e.clientY-r.top+'px'); }}));
     const updateClock=()=>$('#clock').textContent=new Date().toLocaleTimeString('zh-CN',{{hour12:false}}); updateClock(); setInterval(updateClock,1000);
+    setInterval(()=>refreshDashboard(false),30000);
   </script>
 </body>
 </html>'''
-
-
-def open_dashboard(path: Path) -> bool:
-    """Open a generated dashboard in the system's default browser."""
-    return webbrowser.open(path.resolve().as_uri(), new=2)
 
 
 def main() -> int:
@@ -613,19 +705,30 @@ def main() -> int:
         limits = config["limits"]
         recent = parse_last30days(args.last30days_file)
         annotations = load_annotations(args.annotations_file)
+        generated_at = datetime.now(timezone.utc)
+        local_date = generated_at.astimezone(GMT_PLUS_8).date()
+        cooldown_days = config.get("cooldown", {}).get("days", DEFAULT_COOLDOWN_DAYS)
+        state_path = cooldown_state_path(config, args.output)
+        cooldown_state = load_cooldown_state(state_path)
+        selected_recent, cooldown_excluded = select_recent_with_cooldown(
+            recent,
+            limits["last30days"],
+            cooldown_state,
+            local_date,
+            cooldown_days,
+        )
         page = args.star_history_html.read_text(encoding="utf-8") if args.star_history_html else fetch_html()
         weekly, all_time = parse_star_history(page)
 
         # Build sections for the text message
         sections = [section for section in (
-            render_recent(recent, limits["last30days"], annotations),
+            render_recent(selected_recent, limits["last30days"], annotations),
             render_weekly(weekly, limits["weekly"]),
             render_weekly_table(weekly, limits["weekly"]),
             render_all_time(all_time, limits["all_time"]),
         ) if section]
         if not sections:
             raise ValueError("All configured limits are zero; message would be empty")
-        generated_at = datetime.now(timezone.utc)
         message = render_message(sections, generated_at)
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(message, encoding="utf-8")
@@ -633,13 +736,15 @@ def main() -> int:
         dashboard_path = args.output.with_suffix(".html")
         dashboard_path.write_text(
             render_dashboard(
-                recent,
+                selected_recent,
                 weekly,
                 all_time,
                 limits,
                 annotations,
                 message,
                 generated_at,
+                cooldown_days,
+                cooldown_excluded,
             ),
             encoding="utf-8",
         )
@@ -653,11 +758,24 @@ def main() -> int:
             except Exception as exc:
                 chart_error = str(exc)
 
+        save_cooldown_state(
+            state_path,
+            cooldown_state,
+            selected_recent,
+            local_date,
+            cooldown_days,
+        )
+
         result: dict[str, Any] = {
             "output": str(args.output.resolve()),
             "dashboard": str(dashboard_path.resolve()),
+            "cooldown": {
+                "days": cooldown_days,
+                "excluded": cooldown_excluded,
+                "state": str(state_path.resolve()),
+            },
             "counts": {
-                "last30days": min(len(recent), limits["last30days"]),
+                "last30days": len(selected_recent),
                 "weekly": min(len(weekly), limits["weekly"]),
                 "all_time": min(len(all_time), limits["all_time"]),
             },
@@ -667,11 +785,8 @@ def main() -> int:
         if chart_error:
             result["chart_error"] = chart_error
         if not args.no_open_dashboard:
-            try:
-                result["dashboard_opened"] = open_dashboard(dashboard_path)
-            except (OSError, webbrowser.Error) as exc:
-                result["dashboard_opened"] = False
-                result["dashboard_open_error"] = str(exc)
+            result["dashboard_url"] = dashboard_url(dashboard_path)
+            result["dashboard_opened"] = open_dashboard(dashboard_path)
         print(json.dumps(result, ensure_ascii=False))
         return 0
     except (OSError, ValueError, json.JSONDecodeError) as exc:

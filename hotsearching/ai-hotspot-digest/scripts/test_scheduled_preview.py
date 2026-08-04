@@ -127,10 +127,9 @@ class ScheduledPreviewTest(unittest.TestCase):
 
     def test_open_preview_dashboard_uses_default_browser(self):
         preview = Path("/tmp/digest.txt")
-        with patch.object(scheduled_preview.webbrowser, "open", return_value=True) as browser_open:
+        with patch.object(scheduled_preview, "open_dashboard", return_value=True) as browser_open:
             self.assertTrue(scheduled_preview.open_preview_dashboard(preview))
-        self.assertTrue(browser_open.call_args.args[0].endswith("/digest.html"))
-        self.assertEqual(browser_open.call_args.kwargs, {"new": 2})
+        self.assertEqual(browser_open.call_args.args[0], Path("/tmp/digest.html"))
 
 
 if __name__ == "__main__":

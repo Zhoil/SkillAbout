@@ -23,6 +23,12 @@
     "all_time": 20
   },
 
+  "cooldown": {
+    "_comment": "热点展示冷却期。同一天重复生成保持稳定，后续天数内不重复展示同一 URL。state_file 留空时写入输出目录的 .hotspot-cooldown.json。",
+    "days": 7,
+    "state_file": ""
+  },
+
   "push": {
     "_comment": "adapter 决定调用哪个推送实现；target 由适配器自行解释。",
     "adapter": "shell",
