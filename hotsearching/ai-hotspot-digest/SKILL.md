@@ -47,6 +47,8 @@ python3 scripts/build_digest.py \
   --output <消息预览文件>
 ```
 
+生成完成后会自动使用系统默认浏览器打开同名 HTML 动态看板。自动化或无桌面环境可增加 `--no-open-dashboard`，仅生成文件而不打开浏览器。
+
 脚本从 `https://www.star-history.com/` 提取 Weekly 的趋势和 Star 变化，并从 All-time 提取 Star 总数。Weekly 固定写成 `序号. 趋势符号 仓库名 +变化量`，例如 `2. ▲ owner/repo +12`；All-time 固定写成 `序号. ：仓库名 ：总数 🌟`。两类链接的下一行固定使用 `🔎 URL`。趋势使用 `–`（持平）、`▲`（上升）、`▼`（下降），不得输出"排名""趋势""Star 变化""数据源"等标签或尾行。若任一榜单无法识别，停止发送并报告错误，不得用臆测数据补齐。需要离线验证时可用 `--star-history-html <HTML文件>`。
 
 **对比图表生成：** 当 `limits.weekly > 0` 且安装了 matplotlib 时，脚本会自动在消息预览文件同目录下生成一张 PNG 对比图（文件名与预览文件相同，后缀改为 `.png`），内容包含：
@@ -99,6 +101,8 @@ python3 scripts/push_digest.py \
 ```bash
 python3 scripts/scheduled_preview.py --schedule <定时配置> --run-once
 ```
+
+`--run-once` 生成完成后会自动打开 HTML 动态看板；持续定时进程只在后台生成文件，不会每天弹出浏览器窗口。
 
 确认预览生成成功后启动持续进程：
 

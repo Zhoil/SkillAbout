@@ -16,6 +16,7 @@ import subprocess
 import sys
 import time
 from typing import Any
+import webbrowser
 
 
 GMT_PLUS_8 = timezone(timedelta(hours=8))
@@ -93,17 +94,32 @@ def generate_preview(schedule_file: Path, config: dict[str, Any], now: datetime 
         "--last30days-file", str(last30days_path),
         "--annotations-file", str(resolve_path(config["annotations_file"], schedule_file)),
         "--output", str(output),
+        "--no-open-dashboard",
     ]
     subprocess.run(command, check=True)
     latest = output_dir / "latest.txt"
     latest_tmp = output_dir / ".latest.txt.tmp"
     latest_tmp.write_bytes(output.read_bytes())
     latest_tmp.replace(latest)
+    dashboard = output.with_suffix(".html")
+    if dashboard.exists():
+        latest_dashboard = output_dir / "latest.html"
+        latest_dashboard_tmp = output_dir / ".latest.html.tmp"
+        latest_dashboard_tmp.write_bytes(dashboard.read_bytes())
+        latest_dashboard_tmp.replace(latest_dashboard)
     return output
 
 
 def send_reminder(preview: Path) -> str:
     return f"预览已生成，请确认内容后发送：{preview}"
+
+
+def open_preview_dashboard(preview: Path) -> bool:
+    dashboard = preview.with_suffix(".html")
+    try:
+        return webbrowser.open(dashboard.resolve().as_uri(), new=2)
+    except (OSError, webbrowser.Error):
+        return False
 
 
 def main() -> int:
@@ -117,7 +133,11 @@ def main() -> int:
     try:
         config = load_schedule(args.schedule)
         if args.run_once:
-            print(generate_preview(args.schedule.resolve(), config))
+            preview = generate_preview(args.schedule.resolve(), config)
+            opened = open_preview_dashboard(preview)
+            print(preview)
+            if not opened:
+                print(f"dashboard generated but browser did not open: {preview.with_suffix('.html')}", file=sys.stderr)
             return 0
         if not config.get("enabled", False):
             raise ValueError("schedule.enabled is false")

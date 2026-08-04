@@ -1,0 +1,68 @@
+🕒 2026-08-04 12:27:02 GMT+8
+
+研发工具与技能热点及开源趋势汇总
+
+【近30天 研发工具与技能热点】
+1. Top MCP Servers for Frontend Developers in 2026 ：汇总前端研发常用 MCP 服务，覆盖设计、代码、测试与部署工作流。
+   🌐 https://reddit.com/r/agentcontext_dev/comments/1vaoqqk/top_mcp_servers_for_frontend_developers_in_2026
+2. MindFlock - Parallel AI coding agents in isolated Git worktrees ：让多个编码 Agent 在隔离的 Git worktree 中并行开发，降低代码冲突。
+   🌐 https://github.com/mindflock/mindflock
+3. Zaira Labs - A developer tool guide for AI coding agents ：收录并分类 900 多款编码 Agent 工具，帮助开发者快速完成工具选型。
+   🌐 https://zairalabs.ai/guide
+4. OpenLore - Local-first memory and guardrails for coding agents ：为编码 Agent 提供确定性、本地优先的记忆和安全护栏。
+   🌐 https://github.com/clay-good/openlore
+5. ResiliReplay - Chaos testing for AI agents and MCP servers ：面向 AI Agent 与 MCP 服务执行故障注入和可复现的混沌测试。
+   🌐 https://github.com/aliengineering-byte/resilireplay
+6. AI-coding agents kill team collaboration ：分析编码 Agent 对团队协作、评审共享和工程知识沉淀的负面影响。
+   🌐 https://leaddev.com/ai/ai-coding-agents-kill-team-collaboration
+7. Android Remote Control MCP v1.10.0 ：通过远程控制 MCP 让 Agent 自动操作和测试 Android 应用。
+   🌐 https://reddit.com/r/claudeworkflows/comments/1vbste1/workflow_automate_android_apps_with_ai_agents
+8. MCP Integration for AI Agents - One API to Connect Any Tool ：用统一 API 为 AI Agent 接入多种工具，简化 MCP 集成与权限管理。
+   🌐 https://reddit.com/r/jenova_ai/comments/1v70bb2/mcp_integration_for_ai_agents_one_api_to_connect
+9. Grok Build - xAI's open-source AI coding agent ：xAI 开源编码 Agent 的安装、配置与完整使用流程受到关注。
+   🌐 https://reddit.com/r/aiagents/comments/1uyvlgn/grok_build_tutorial_install_configure_and_master
+10. Mouse - Precision editing tools for AI coding agents ：为编码 Agent 提供精确编辑能力，减少大范围重写和无关代码变更。
+   🌐 https://hic-ai.com
+
+【Star History Weekly】
+1. – mattpocock/skills +36
+   🔎 https://github.com/mattpocock/skills
+2. – stablyai/orca +23
+   🔎 https://github.com/stablyai/orca
+3. – earendil-works/pi +19
+   🔎 https://github.com/earendil-works/pi
+4. – graphify-labs/graphify +16
+   🔎 https://github.com/graphify-labs/graphify
+5. ▲ diegosouzapw/omniroute +16
+   🔎 https://github.com/diegosouzapw/omniroute
+6. – microsoft/ai-for-beginners +16
+   🔎 https://github.com/microsoft/ai-for-beginners
+7. – dietrichgebert/ponytail +15
+   🔎 https://github.com/dietrichgebert/ponytail
+
+【Weekly 变化对比表】
+  序号  仓库                                趋势      上期排名      本期排名      Star变化
+───────────────────────────────────────────────────────────────────────────
+   1  mattpocock/skills                  –         1         1  +       36
+   2  stablyai/orca                      –         2         2  +       23
+   3  earendil-works/pi                  –         3         3  +       19
+   4  graphify-labs/graphify             –         4         4  +       16
+   5  diegosouzapw/omniroute             ▲         6         5  +       16
+   6  microsoft/ai-for-beginners         –         6         6  +       16
+   7  dietrichgebert/ponytail            –         7         7  +       15
+
+【Star History All-time】
+1. ：codecrafters-io/build-your-own-x ：535,460 🌟
+   🔎 https://github.com/codecrafters-io/build-your-own-x
+2. ：sindresorhus/awesome ：491,856 🌟
+   🔎 https://github.com/sindresorhus/awesome
+3. ：public-apis/public-apis ：454,198 🌟
+   🔎 https://github.com/public-apis/public-apis
+4. ：freeCodeCamp/freeCodeCamp ：453,403 🌟
+   🔎 https://github.com/freeCodeCamp/freeCodeCamp
+5. ：EbookFoundation/free-programming-books ：393,618 🌟
+   🔎 https://github.com/EbookFoundation/free-programming-books
+6. ：openclaw/openclaw ：385,006 🌟
+   🔎 https://github.com/openclaw/openclaw
+7. ：nilbuild/developer-roadmap ：363,446 🌟
+   🔎 https://github.com/nilbuild/developer-roadmap

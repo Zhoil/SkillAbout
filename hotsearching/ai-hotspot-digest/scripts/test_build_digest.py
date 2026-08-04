@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import build_digest
 
@@ -83,6 +84,55 @@ class BuildDigestTest(unittest.TestCase):
             message,
             "🕒 2026-07-30 11:03:00 GMT+8\n\n研发工具与技能热点及开源趋势汇总\n\nSECTION",
         )
+
+    def test_dashboard_contains_dynamic_and_terminal_views(self):
+        generated_at = datetime(2026, 7, 30, 3, 3, 0, tzinfo=timezone.utc)
+        recent = [{"title": "Agent trend", "url": "https://example.com/a"}]
+        weekly = [{
+            "title": "a/b", "rank": "1", "trend": "▲",
+            "stars_delta": "51", "url": "https://github.com/a/b",
+        }]
+        all_time = [{"title": "c/d", "stars": "1000", "url": "https://github.com/c/d"}]
+        message = build_digest.render_message(["SECTION"], generated_at)
+        dashboard = build_digest.render_dashboard(
+            recent,
+            weekly,
+            all_time,
+            {"last30days": 1, "weekly": 1, "all_time": 1},
+            {"https://example.com/a": "研发智能体获得新能力"},
+            message,
+            generated_at,
+        )
+        self.assertIn("动态看板", dashboard)
+        self.assertIn("终端内容", dashboard)
+        self.assertIn("Agent trend", dashboard)
+        self.assertIn("研发智能体获得新能力", dashboard)
+        self.assertIn("2026-07-30 11:03:00 GMT+8", dashboard)
+        self.assertIn("prefers-reduced-motion", dashboard)
+
+    def test_dashboard_escapes_inline_script_breakout(self):
+        generated_at = datetime(2026, 7, 30, tzinfo=timezone.utc)
+        recent = [{"title": "</script><script>alert(1)</script>", "url": "https://example.com/a"}]
+        dashboard = build_digest.render_dashboard(
+            recent,
+            [],
+            [],
+            {"last30days": 1, "weekly": 0, "all_time": 0},
+            {"https://example.com/a": "安全测试"},
+            "terminal",
+            generated_at,
+        )
+        self.assertNotIn("</script><script>alert(1)</script>", dashboard)
+        self.assertIn("\\u003c/script\\u003e", dashboard)
+
+    def test_open_dashboard_uses_default_browser(self):
+        dashboard = Path("/tmp/digest preview.html")
+        with patch.object(build_digest.webbrowser, "open", return_value=True) as browser_open:
+            self.assertTrue(build_digest.open_dashboard(dashboard))
+        url = browser_open.call_args.args[0]
+        self.assertTrue(url.startswith("file://"))
+        self.assertIn("digest%20preview.html", url)
+        self.assertEqual(browser_open.call_args.kwargs, {"new": 2})
 
     def test_missing_chinese_description_rejected(self):
         with self.assertRaisesRegex(ValueError, "Missing Chinese description"):

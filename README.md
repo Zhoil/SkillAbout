@@ -68,6 +68,8 @@ python3 hotsearching/ai-hotspot-digest/scripts/push_digest.py \
   --message-file /tmp/digest-preview.txt
 ```
 
+生成预览后会自动在默认浏览器中打开同名 HTML 动态看板；自动化场景可增加 `--no-open-dashboard`。
+
 ### 推送适配器配置
 
 在 `config.json` 的 `push` 字段中指定适配器和目标：
@@ -206,7 +208,7 @@ python3 -u hotsearching/ai-hotspot-digest/scripts/scheduled_preview.py \
   --schedule ~/.ai-hotspot-digest/schedule.json
 ```
 
-预览文件保存在配置的 `output_dir`，每次原子更新 `latest.txt`。
+预览文件保存在配置的 `output_dir`，每次原子更新 `latest.txt` 和 `latest.html`。`--run-once` 会在生成后打开动态看板，持续定时进程不会自动弹出浏览器。
 
 ## 测试
 

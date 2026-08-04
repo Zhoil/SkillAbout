@@ -18,9 +18,9 @@
   },
 
   "limits": {
-    "last30days": 4,
+    "last30days": 20,
     "weekly": 20,
-    "all_time": 5
+    "all_time": 20
   },
 
   "push": {
