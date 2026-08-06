@@ -48,14 +48,17 @@ class BuildDigestTest(unittest.TestCase):
         same_day, excluded = build_digest.select_recent_with_cooldown(
             items, 2, shown, date(2026, 8, 4), 7
         )
-        self.assertEqual([item["title"] for item in same_day], ["A", "B"])
-        self.assertEqual(excluded, 0)
+        self.assertEqual([item["title"] for item in same_day], ["C", "D"])
+        self.assertEqual(excluded, 2)
+
+        for item in same_day:
+            shown[item["url"]] = "2026-08-04"
 
         next_day, excluded = build_digest.select_recent_with_cooldown(
             items, 2, shown, date(2026, 8, 5), 7
         )
-        self.assertEqual([item["title"] for item in next_day], ["C", "D"])
-        self.assertEqual(excluded, 2)
+        self.assertEqual(next_day, [])
+        self.assertEqual(excluded, 4)
 
         after_cooldown, excluded = build_digest.select_recent_with_cooldown(
             items, 2, shown, date(2026, 8, 11), 7
@@ -81,11 +84,13 @@ class BuildDigestTest(unittest.TestCase):
             path = Path(directory) / "data.json"
             path.write_text(json.dumps({
                 "clusters": [{"title": "Summary without URL"}],
-                "results": [{"title": "Agent trend", "url": "https://example.com"}],
+                "results": [{"title": "Agent trend", "url": "https://example.com", "summary": "智能体获得新的工具调用能力。", "source": "weixin"}],
             }))
             item = build_digest.parse_last30days(path)[0]
             self.assertEqual(item["title"], "Agent trend")
             self.assertEqual(item["url"], "https://example.com")
+            self.assertEqual(item["summary"], "智能体获得新的工具调用能力。")
+            self.assertEqual(item["source"], "weixin")
 
     def test_negative_limit_rejected(self):
         with self.assertRaises(ValueError):
@@ -152,6 +157,8 @@ class BuildDigestTest(unittest.TestCase):
         self.assertIn("prefers-reduced-motion", dashboard)
         self.assertIn("实时刷新", dashboard)
         self.assertIn("refreshDashboard(false)", dashboard)
+        self.assertIn("triggerGeneration", dashboard)
+        self.assertIn("latest preview unavailable", dashboard)
         self.assertIn("实用的开发工具。", dashboard)
         self.assertIn("热门的开源项目。", dashboard)
 
@@ -214,6 +221,15 @@ class BuildDigestTest(unittest.TestCase):
     def test_missing_chinese_description_rejected(self):
         with self.assertRaisesRegex(ValueError, "Missing Chinese description"):
             build_digest.render_recent([{"title": "AI", "url": "https://example.com"}], 1, {})
+
+    def test_chinese_source_summary_is_used_when_annotation_is_missing(self):
+        rendered = build_digest.render_recent([{
+            "title": "Agent Skill",
+            "url": "https://mp.weixin.qq.com/s/example",
+            "summary": "文章总结了智能体技能的分层设计、工具调用方式和生产实践。后续内容不应进入首句。",
+        }], 1, {})
+        self.assertIn("文章总结了智能体技能的分层设计、工具调用方式和生产实践。", rendered)
+        self.assertNotIn("后续内容", rendered)
 
     def test_render_weekly_table_basic(self):
         items = _make_weekly_items(3)

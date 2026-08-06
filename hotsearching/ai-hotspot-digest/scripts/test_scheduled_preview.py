@@ -108,7 +108,7 @@ class ScheduledPreviewTest(unittest.TestCase):
             }
             commands = []
 
-            def fake_run(command, check):
+            def fake_run(command, check, **_kwargs):
                 commands.append(command)
                 output = Path(command[command.index("--output") + 1])
                 output.write_text("terminal preview", encoding="utf-8")
@@ -124,6 +124,9 @@ class ScheduledPreviewTest(unittest.TestCase):
             self.assertEqual((output_dir / "latest.txt").read_text(), "terminal preview")
             self.assertEqual((output_dir / "latest.html").read_text(), "<html>dashboard</html>")
             self.assertIn("--no-open-dashboard", commands[0])
+            manifest = json.loads((output_dir / scheduled_preview.REFRESH_MANIFEST).read_text())
+            self.assertEqual(manifest["schedule_file"], str(schedule_file.resolve()))
+            self.assertTrue(manifest["token"])
 
     def test_open_preview_dashboard_uses_default_browser(self):
         preview = Path("/tmp/digest.txt")

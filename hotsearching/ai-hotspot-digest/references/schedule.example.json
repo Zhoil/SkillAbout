@@ -6,8 +6,8 @@
   "last30days_file": "/private/tmp/ai-hotspots-last30days.json",
   "annotations_file": "/private/tmp/ai-hotspot-annotations.json",
   "output_dir": "/private/tmp/ai-hotspot-daily-previews",
-  "_comment_fetch": "fetch_last30days=true 时，每次定时运行前先调用 fetch_hotspots.py 更新 last30days_file，无需手动维护。",
-  "fetch_last30days": false,
+  "_comment_fetch": "fetch_last30days=true 时，定时运行或看板点击实时刷新都会先更新热点文件；建议保持开启。",
+  "fetch_last30days": true,
   "_comment_last30days_skill_dir": "fetch_last30days=true 时必填：last30days SKILL.md 所在目录（含 scripts/last30days.py）。",
   "last30days_skill_dir": ""
 }

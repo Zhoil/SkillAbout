@@ -2,19 +2,42 @@
   "_comment": "复制此文件为工作配置（如 config.json），按需填写。所有字段均有默认值。",
 
   "last30days": {
-    "_comment": "控制 last30days 热点采集的关键词和方向，留空则使用以下默认值。",
-    "topic": "R&D tools developer skills AI agent",
+    "_comment": "控制热点采集、国内公开平台检索和质量筛选，留空则使用以下默认值。",
+    "topic": "AI frontier research developer tools agent skills engineering practices",
+    "domestic_topic": "人工智能 前沿技术 AI研发 Agent Skill 大模型工程",
     "days": 30,
     "depth": "default",
     "_comment_depth": "depth 可选 default / quick / deep",
-    "search": "github,hackernews,reddit,arxiv",
-    "_comment_search": "逗号分隔的来源名称，如 reddit,x,hackernews。留空使用 last30days 默认来源。默认偏重研发工具和开发者技能相关来源。",
+    "search": "reddit,x,youtube,tiktok,instagram,hackernews,polymarket,github,arxiv,grounding",
+    "_comment_search": "逗号分隔的来源名称，如 reddit,x,hackernews,grounding。留空使用 last30days 默认来源。grounding 负责公开 Web 文章和博客。",
     "subreddits": "MachineLearning,LocalLLaMA,ChatGPT,ClaudeAI,coding,devtools",
     "_comment_subreddits": "逗号分隔的 subreddit 名（不含 r/），如 MachineLearning,LocalLLaMA。留空自动选择。",
     "x_handle": "",
     "_comment_x_handle": "可选：为某个 X/Twitter 账号做针对性搜索，如 AnthropicAI。",
     "dedicated_subreddits": "ChatGPT,ClaudeAI,coding",
-    "_comment_dedicated_subreddits": "实体专属 subreddit（全量拉取，不过相关性门槛），如 ChatGPT,ClaudeAI。"
+    "_comment_dedicated_subreddits": "实体专属 subreddit（全量拉取，不过相关性门槛），如 ChatGPT,ClaudeAI。",
+    "quality_plan": true,
+    "_comment_quality_plan": "为所有来源生成前沿研究、工程实践、Agent Skill、模型与开源发展四类检索计划。",
+    "domestic": {
+      "_comment": "免登录国内公开平台。微信公众号通过搜狗微信公开文章索引检索，其余平台通过公开文章页检索；只保留可直接访问的文章链接。",
+      "enabled": true,
+      "platforms": "weixin,toutiao,juejin,csdn,zhihu",
+      "per_platform": 6,
+      "queries": [
+        "人工智能 前沿技术 研究进展",
+        "AI 工程 研发实践 新技术",
+        "AI Agent Skill 技能 总结 推荐",
+        "大模型 开发工具 技术博客"
+      ]
+    },
+    "quality": {
+      "_comment": "合并后按内容质量评分、URL/标题去重并限制单一来源占比。",
+      "min_score": 0.48,
+      "per_source_limit": 10,
+      "max_results": 80,
+      "keywords": "AI,人工智能,大模型,LLM,Agent,智能体,Skill,技能,前沿,研究,技术,工程,研发,开源,架构,实践,复盘,评测,工作流",
+      "blocked_keywords": "招聘,培训班,招生,优惠券,限时优惠,网赚,副业,震惊,速领,娱乐八卦"
+    }
   },
 
   "limits": {
@@ -24,7 +47,7 @@
   },
 
   "cooldown": {
-    "_comment": "热点展示冷却期。同一天重复生成保持稳定，后续天数内不重复展示同一 URL。state_file 留空时写入输出目录的 .hotspot-cooldown.json。",
+    "_comment": "热点展示冷却期。每次刷新都排除窗口内已展示 URL（包括当天），确保旧热点不会再次出现。state_file 留空时写入输出目录的 .hotspot-cooldown.json。",
     "days": 7,
     "state_file": ""
   },

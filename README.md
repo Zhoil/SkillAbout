@@ -69,7 +69,7 @@ python3 hotsearching/ai-hotspot-digest/scripts/push_digest.py \
   --message-file /tmp/digest-preview.txt
 ```
 
-生成预览后会通过仅监听 `127.0.0.1` 的本地服务，在默认浏览器中打开同名 HTML 动态看板。页面支持按钮实时刷新，并每 30 秒静默检查最新生成结果；数据变化时只更新看板内容，不整页跳转。自动化场景可增加 `--no-open-dashboard`。
+生成预览后会通过仅监听 `127.0.0.1` 的本地服务，在默认浏览器中打开 HTML 动态看板。定时预览模式下，点击“实时刷新”会触发一次新的热点采集与摘要生成，并整批替换已展示热点；页面每 30 秒静默检查 `latest.html`，数据变化时只更新看板内容。刷新接口使用随机令牌且仅监听回环地址。自动化场景可增加 `--no-open-dashboard`。
 
 ### 推送适配器配置
 
@@ -152,25 +152,40 @@ python3 hotsearching/ai-hotspot-digest/scripts/push_digest.py \
 
 ```json
 "last30days": {
-  "topic": "open source LLM inference",
+  "topic": "AI frontier research developer tools agent skills engineering practices",
+  "domestic_topic": "人工智能 前沿技术 AI研发 Agent Skill 大模型工程",
   "days": 14,
   "depth": "deep",
-  "search": "reddit,hackernews,x",
+  "search": "reddit,x,youtube,tiktok,instagram,hackernews,polymarket,github,arxiv,grounding",
   "subreddits": "LocalLLaMA,MachineLearning",
   "dedicated_subreddits": "ollama",
-  "x_handle": "ollama"
+  "x_handle": "ollama",
+  "domestic": {
+    "enabled": true,
+    "platforms": "weixin,toutiao,juejin,csdn,zhihu",
+    "per_platform": 6
+  },
+  "quality": {
+    "min_score": 0.48,
+    "per_source_limit": 10,
+    "max_results": 80
+  }
 }
 ```
 
 | 字段 | 说明 | 默认值 |
 |---|---|---|
-| `topic` | 搜索关键词/主题 | `AI artificial intelligence` |
+| `topic` | 搜索关键词/主题 | `AI frontier research developer tools agent skills engineering practices` |
 | `days` | 回溯天数 | `30` |
 | `depth` | `default` / `quick` / `deep` | `default` |
 | `search` | 逗号分隔来源（留空用引擎默认） | 空 |
 | `subreddits` | 额外 subreddit（不含 `r/`） | 空 |
 | `dedicated_subreddits` | 实体专属 subreddit，全量拉取 | 空 |
 | `x_handle` | X/Twitter 账号定向搜索 | 空 |
+| `domestic` | 免登录国内平台：微信公众号、今日头条、掘金、CSDN、知乎专栏 | 开启 |
+| `quality` | 质量阈值、关键词/屏蔽词、单来源上限 | 开启 |
+
+采集器会为所有来源统一生成四类检索角度：前沿研究与新技术、AI 工程实践、Agent Skill/工作流总结、模型与开源发展。合并结果后按内容完整度、技术关键词、上游相关性和公开可访问性评分，过滤广告与标题党，规范化 URL、标题去重，并限制单一来源占比。微信公众号使用搜狗微信公开文章索引；其他国内来源只保留无需登录即可打开的文章或博客链接。国内文章若尚未配置人工注释，会使用检索结果中的中文原文摘要首句作为说明；没有可靠中文摘要的条目不会进入推送。
 
 手动单次采集：
 
@@ -183,7 +198,7 @@ python3 hotsearching/ai-hotspot-digest/scripts/fetch_hotspots.py \
 
 ### 热点展示冷却期
 
-近 30 天热点默认按来源 URL 启用 7 天冷却：同一天重复生成保持稳定，从第二天起不再展示过去 7 天出现过的热点，优先补入其他候选。状态默认保存在预览目录的 `.hotspot-cooldown.json`；可在配置中调整：
+近 30 天热点默认按来源 URL 启用 7 天冷却：每次生成或实时刷新都会排除过去 7 天已经展示的 URL（包括当天上一批内容），优先补入其他候选。状态默认保存在预览目录的 `.hotspot-cooldown.json`；可在配置中调整：
 
 ```json
 "cooldown": {
@@ -222,13 +237,13 @@ python3 -u hotsearching/ai-hotspot-digest/scripts/scheduled_preview.py \
   --schedule ~/.ai-hotspot-digest/schedule.json
 ```
 
-预览文件保存在配置的 `output_dir`，每次原子更新 `latest.txt` 和 `latest.html`。`--run-once` 会在生成后打开动态看板，持续定时进程不会自动弹出浏览器。
+预览文件保存在配置的 `output_dir`，每次原子更新 `latest.txt` 和 `latest.html`。`--run-once` 会打开 `latest.html` 动态看板；持续进程不会自动弹出浏览器。看板的手动刷新会复用同一 schedule 配置重新采集（`fetch_last30days=true` 时）并生成新批次，旧批次不会混入新结果。
 
 ## 测试
 
 ```bash
 cd hotsearching/ai-hotspot-digest/scripts
-python3 -m pytest test_build_digest.py test_scheduled_preview.py test_push_digest.py -v
+python3 -m unittest discover -p 'test_*.py'
 ```
 
 ## 故障排查

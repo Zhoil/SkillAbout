@@ -11,7 +11,9 @@ from __future__ import annotations
 import argparse
 from datetime import datetime, timedelta, timezone
 import json
+import os
 from pathlib import Path
+import secrets
 import subprocess
 import sys
 import time
@@ -21,6 +23,7 @@ from preview_browser import open_dashboard
 
 
 GMT_PLUS_8 = timezone(timedelta(hours=8))
+REFRESH_MANIFEST = ".preview-refresh.json"
 
 
 def load_schedule(path: Path) -> dict[str, Any]:
@@ -75,10 +78,33 @@ def fetch_hotspots(
     subprocess.run(command, check=True)
 
 
+def ensure_refresh_manifest(output_dir: Path, schedule_file: Path) -> dict[str, str]:
+    """Persist the loopback-only refresh recipe and a CSRF token."""
+    path = output_dir / REFRESH_MANIFEST
+    token = ""
+    if path.exists():
+        try:
+            current = json.loads(path.read_text(encoding="utf-8"))
+            token = str(current.get("token") or "") if isinstance(current, dict) else ""
+        except (OSError, json.JSONDecodeError):
+            token = ""
+    payload = {
+        "version": 1,
+        "token": token or secrets.token_urlsafe(24),
+        "schedule_file": str(schedule_file.resolve()),
+        "target": "latest.html",
+    }
+    temporary = output_dir / f".{REFRESH_MANIFEST}.tmp"
+    temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    temporary.replace(path)
+    return payload
+
+
 def generate_preview(schedule_file: Path, config: dict[str, Any], now: datetime | None = None) -> Path:
     current = (now or datetime.now(timezone.utc)).astimezone(GMT_PLUS_8)
     output_dir = resolve_path(config["output_dir"], schedule_file)
     output_dir.mkdir(parents=True, exist_ok=True)
+    refresh_manifest = ensure_refresh_manifest(output_dir, schedule_file)
     output = output_dir / current.strftime("digest-%Y%m%d-%H%M%S.txt")
 
     last30days_path = resolve_path(config["last30days_file"], schedule_file)
@@ -97,7 +123,10 @@ def generate_preview(schedule_file: Path, config: dict[str, Any], now: datetime 
         "--output", str(output),
         "--no-open-dashboard",
     ]
-    subprocess.run(command, check=True)
+    builder_env = os.environ.copy()
+    builder_env["AI_HOTSPOT_REFRESH_TOKEN"] = refresh_manifest["token"]
+    builder_env["AI_HOTSPOT_REFRESH_TARGET"] = refresh_manifest["target"]
+    subprocess.run(command, check=True, env=builder_env)
     latest = output_dir / "latest.txt"
     latest_tmp = output_dir / ".latest.txt.tmp"
     latest_tmp.write_bytes(output.read_bytes())
@@ -127,14 +156,17 @@ def main() -> int:
     parser.add_argument("--schedule", required=True, type=Path)
     parser.add_argument("--run-once", action="store_true",
                         help="Generate one preview immediately and exit.")
+    parser.add_argument("--no-open-dashboard", action="store_true",
+                        help="Do not open the browser after --run-once.")
     args = parser.parse_args()
     try:
         config = load_schedule(args.schedule)
         if args.run_once:
             preview = generate_preview(args.schedule.resolve(), config)
-            opened = open_preview_dashboard(preview)
+            latest_preview = resolve_path(config["output_dir"], args.schedule.resolve()) / "latest.txt"
+            opened = args.no_open_dashboard or open_preview_dashboard(latest_preview)
             print(preview)
-            if not opened:
+            if not opened and not args.no_open_dashboard:
                 print(f"dashboard generated but browser did not open: {preview.with_suffix('.html')}", file=sys.stderr)
             return 0
         if not config.get("enabled", False):

@@ -88,13 +88,11 @@ def select_recent_with_cooldown(
     current_date: date,
     days: int = DEFAULT_COOLDOWN_DAYS,
 ) -> tuple[list[dict[str, str]], int]:
-    """Keep same-day output stable and suppress URLs shown in prior cooldown days."""
+    """Suppress every URL already shown in the cooldown window, including today."""
     if not limit:
         return [], 0
-    today = current_date.isoformat()
-    by_url = {item.get("url", ""): item for item in items if item.get("url")}
-    selected = [by_url[url] for url, shown_on in shown.items() if shown_on == today and url in by_url]
-    selected_urls = {item["url"] for item in selected}
+    selected: list[dict[str, str]] = []
+    selected_urls: set[str] = set()
     excluded = 0
     for item in items:
         url = item.get("url", "")
@@ -103,7 +101,7 @@ def select_recent_with_cooldown(
         shown_on = shown.get(url)
         if shown_on:
             age = (current_date - date.fromisoformat(shown_on)).days
-            if 0 < age < days or age < 0:
+            if 0 <= age < days or age < 0:
                 excluded += 1
                 continue
         if len(selected) < limit:
@@ -171,7 +169,14 @@ def parse_last30days(path: Path) -> list[dict[str, str]]:
                     continue
                 title, url = row.get("title"), row.get("url")
                 if isinstance(title, str) and isinstance(url, str) and url:
-                    parsed.append({"title": title.strip(), "url": url.strip()})
+                    parsed.append({
+                        "title": title.strip(),
+                        "url": url.strip(),
+                        "original_url": str(row.get("original_url") or "").strip(),
+                        "summary": str(row.get("summary") or "").strip(),
+                        "source": str(row.get("source") or "").strip(),
+                        "source_label": str(row.get("source_label") or "").strip(),
+                    })
         if not parsed:
             parsed = strings_from_json(document)
         if parsed:
@@ -414,13 +419,34 @@ def load_annotations(path: Path | None) -> dict[str, str]:
     return {str(key): str(value).strip() for key, value in document.items() if str(value).strip()}
 
 
+def hotspot_description(
+    item: dict[str, str],
+    annotations: dict[str, str],
+    *,
+    required: bool = True,
+) -> str:
+    """Prefer curated Chinese annotations, then a Chinese source summary."""
+    source_url = item.get("url", "")
+    description = (
+        annotations.get(source_url, "")
+        or annotations.get(item.get("original_url", ""), "")
+    ).strip()
+    if not description:
+        summary = html.unescape(re.sub(r"<[^>]+>", " ", item.get("summary", "")))
+        summary = re.sub(r"\s+", " ", summary).strip()
+        if contains_chinese(summary):
+            sentence = re.split(r"(?<=[。！？!?])\s*", summary, maxsplit=1)[0]
+            description = sentence[:60].rstrip("，,；;：: ")
+    if not description and required:
+        raise ValueError(f"Missing Chinese description for hotspot URL: {source_url}")
+    return description
+
+
 def render_recent(items: list[dict[str, str]], limit: int, annotations: dict[str, str]) -> str:
     lines = ["【近30天 研发工具与技能热点】"]
     for index, item in enumerate(items[:limit], 1):
         source_url = item.get("url", "")
-        description = annotations.get(source_url, "")
-        if not description:
-            raise ValueError(f"Missing Chinese description for hotspot URL: {source_url}")
+        description = hotspot_description(item, annotations)
         lines.extend([
             f"{index}. {item['title']} ：{description}",
             f"   🌐 {source_url}",
@@ -684,7 +710,7 @@ def render_dashboard(
             "index": index,
             "title": item["title"],
             "url": item.get("url", ""),
-            "description": annotations.get(item.get("url", ""), ""),
+            "description": hotspot_description(item, annotations),
         }
         for index, item in enumerate(recent[:limits["last30days"]], 1)
     ]
@@ -717,6 +743,13 @@ def render_dashboard(
         "all_time": all_time_rows,
         "message": message,
         "cooldown": {"days": cooldown_days, "excluded": cooldown_excluded},
+        "refresh": {
+            "enabled": bool(os.environ.get("AI_HOTSPOT_REFRESH_TOKEN")),
+            "token": os.environ.get("AI_HOTSPOT_REFRESH_TOKEN", ""),
+            "endpoint": "/__refresh__",
+            "status_endpoint": "/__refresh_status__",
+            "target": os.environ.get("AI_HOTSPOT_REFRESH_TARGET", ""),
+        },
     }, ensure_ascii=False).replace("&", "\\u0026").replace("<", "\\u003c").replace(">", "\\u003e")
     terminal_fallback = html.escape(message)
     return f'''<!doctype html>
@@ -835,7 +868,10 @@ def render_dashboard(
     applyData(data);
     document.querySelectorAll('[data-view]').forEach(btn=>btn.addEventListener('click',()=>{{ document.querySelectorAll('[data-view]').forEach(x=>x.classList.toggle('active',x===btn)); document.querySelectorAll('.view').forEach(x=>x.hidden=x.id!==btn.dataset.view); $('#search').hidden=btn.dataset.view==='terminal'; }}));
     $('#copy').addEventListener('click',async e=>{{ try {{ await navigator.clipboard.writeText(data.message); e.currentTarget.textContent='已复制 ✓'; setTimeout(()=>e.currentTarget.textContent='复制文本',1400); }} catch {{ e.currentTarget.textContent='复制失败'; }} }});
-    async function refreshDashboard(manual=false) {{ if(refreshPending) return; refreshPending=true; const button=$('#refresh'), label=button.querySelector('.refresh-label'); if(manual) {{ button.classList.add('refreshing'); label.textContent='同步中'; }} try {{ const url=new URL(location.href); url.searchParams.set('_refresh',Date.now()); const controller=new AbortController(); const timeout=setTimeout(()=>controller.abort(),8000); const response=await fetch(url,{{cache:'no-store',signal:controller.signal}}); clearTimeout(timeout); if(!response.ok) throw new Error('refresh failed'); const documentText=await response.text(); const nextDocument=new DOMParser().parseFromString(documentText,'text/html'); const payload=nextDocument.querySelector('#digest-data'); if(!payload) throw new Error('missing digest data'); const next=JSON.parse(payload.textContent); const changed=next.generated_at!==data.generated_at||next.message!==data.message; if(changed) applyData(next,true); if(manual) label.textContent=changed?'已更新':'已是最新'; }} catch(error) {{ if(manual) label.textContent='稍后重试'; }} finally {{ refreshPending=false; if(manual) {{ button.classList.remove('refreshing'); setTimeout(()=>label.textContent='实时刷新',1600); }} }} }}
+    const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+    async function loadLatest() {{ const url=new URL((data.refresh&&data.refresh.target)||location.pathname,location.href); url.searchParams.set('_refresh',Date.now()); const response=await fetch(url,{{cache:'no-store'}}); if(!response.ok) throw new Error('latest preview unavailable'); const documentText=await response.text(); const nextDocument=new DOMParser().parseFromString(documentText,'text/html'); const payload=nextDocument.querySelector('#digest-data'); if(!payload) throw new Error('missing digest data'); const next=JSON.parse(payload.textContent); const changed=next.generated_at!==data.generated_at||next.message!==data.message; if(changed) applyData(next,true); return changed; }}
+    async function triggerGeneration(label) {{ const refresh=data.refresh||{{}}; if(!refresh.enabled) return loadLatest(); const response=await fetch(refresh.endpoint,{{method:'POST',headers:{{'X-Refresh-Token':refresh.token}},cache:'no-store'}}); if(!response.ok&&response.status!==202) throw new Error('refresh start failed'); label.textContent='重新采集中'; for(let i=0;i<650;i++) {{ await pause(1000); const statusResponse=await fetch(refresh.status_endpoint,{{headers:{{'X-Refresh-Token':refresh.token}},cache:'no-store'}}); if(!statusResponse.ok) throw new Error('refresh status failed'); const status=await statusResponse.json(); if(status.state==='failed') throw new Error(status.error||'refresh failed'); if(status.state==='complete') return loadLatest(); }} throw new Error('refresh timeout'); }}
+    async function refreshDashboard(manual=false) {{ if(refreshPending) return; refreshPending=true; const button=$('#refresh'), label=button.querySelector('.refresh-label'); if(manual) {{ button.classList.add('refreshing'); label.textContent='同步中'; }} try {{ const changed=manual?await triggerGeneration(label):await loadLatest(); if(manual) label.textContent=changed?'已换新':'暂无新内容'; }} catch(error) {{ if(manual) label.textContent='刷新失败'; }} finally {{ refreshPending=false; if(manual) {{ button.classList.remove('refreshing'); setTimeout(()=>label.textContent='实时刷新',1800); }} }} }}
     $('#refresh').addEventListener('click',()=>refreshDashboard(true));
     $('#search').addEventListener('input',e=>{{ const q=e.target.value.trim().toLowerCase(); document.querySelectorAll('[data-search]').forEach(el=>el.hidden=q&&!el.dataset.search.includes(q)); }});
     document.addEventListener('pointermove',e=>document.querySelectorAll('.card').forEach(card=>{{ const r=card.getBoundingClientRect(); card.style.setProperty('--x',e.clientX-r.left+'px'); card.style.setProperty('--y',e.clientY-r.top+'px'); }}));
@@ -870,6 +906,10 @@ def main() -> int:
         limits = config["limits"]
         recent = parse_last30days(args.last30days_file)
         annotations = load_annotations(args.annotations_file)
+        recent = [
+            item for item in recent
+            if hotspot_description(item, annotations, required=False)
+        ]
         generated_at = datetime.now(timezone.utc)
         local_date = generated_at.astimezone(GMT_PLUS_8).date()
         cooldown_days = config.get("cooldown", {}).get("days", DEFAULT_COOLDOWN_DAYS)

@@ -13,13 +13,15 @@ description: 汇总 last30days 近 30 天研发工具与技能热点及中文描
 
 | 字段 | 说明 | 默认值 |
 |---|---|---|
-| `topic` | 搜索关键词/主题字符串 | `R&D tools developer skills AI agent` |
+| `topic` | 搜索关键词/主题字符串 | `AI frontier research developer tools agent skills engineering practices` |
 | `days` | 回溯天数 | `30` |
 | `depth` | 检索深度：`default` / `quick` / `deep` | `default` |
 | `search` | 逗号分隔来源名称（留空使用 last30days 默认） | 空 |
 | `subreddits` | 逗号分隔的 subreddit 名（不含 `r/`） | 空 |
 | `dedicated_subreddits` | 实体专属 subreddit，全量拉取，不过相关性门槛 | 空 |
 | `x_handle` | X/Twitter 账号针对性搜索 | 空 |
+| `domestic` | 免登录国内公开平台配置：微信公众号、今日头条、掘金、CSDN、知乎专栏 | 默认开启 |
+| `quality` | 内容质量阈值、关键词、屏蔽词和单来源数量上限 | 默认开启 |
 
 完整读取并调用同级 `../last30days/SKILL.md`，使用上述参数作为调用入参。优先请求其稳定 JSON agent 输出；若宿主只能得到 Markdown，将 Markdown 保存为文件也可。
 
@@ -29,6 +31,8 @@ description: 汇总 last30days 近 30 天研发工具与技能热点及中文描
 
 读取最终选中的热点，为每条来源 URL 编写一句不超过 60 个汉字的中文描述，保存为 JSON 对象。键必须是原始来源 URL，值必须说明事件、核心变化或影响；格式参考 `references/annotations.example.json`。不得翻译或改写标题来冒充描述。
 
+自动采集到的国内公开文章可使用来源搜索结果自带的中文摘要首句（最多 60 字）作为临时说明；不存在人工注释且没有可靠中文摘要的候选必须跳过，不得用标题或通用占位语补齐。
+
 ## 2. 生成汇总预览
 
 复制 `references/config.example.json` 为一个工作配置，填写推送目标。三个数量互相独立：
@@ -37,7 +41,7 @@ description: 汇总 last30days 近 30 天研发工具与技能热点及中文描
 - `limits.weekly`：Star History Weekly 条数（默认 20）。
 - `limits.all_time`：Star History All-time 条数。
 
-热点默认启用 7 天展示冷却期。脚本按来源 URL 记录展示日期：同一天重复生成保持内容稳定；从第二天起过滤冷却期内已展示的热点，优先让位给其他候选；满 7 天后恢复展示资格。状态默认原子保存到预览输出目录的 `.hotspot-cooldown.json`，也可通过 `cooldown.days` 和 `cooldown.state_file` 调整。候选不足时不得提前复用冷却内容，可以少于配置条数。
+热点默认启用 7 天展示冷却期。脚本按来源 URL 记录展示日期：每次生成或手动刷新都过滤冷却期内已经展示的热点（包括当天），优先让位给其他候选；满 7 天后恢复展示资格。状态默认原子保存到预览输出目录的 `.hotspot-cooldown.json`，也可通过 `cooldown.days` 和 `cooldown.state_file` 调整。候选不足时不得提前复用冷却内容，可以少于配置条数。
 
 运行：
 
@@ -49,7 +53,7 @@ python3 scripts/build_digest.py \
   --output <消息预览文件>
 ```
 
-生成完成后会启动仅监听 `127.0.0.1` 的无缓存预览服务，并使用系统默认浏览器打开同名 HTML 动态看板。看板提供“实时刷新”按钮，并每 30 秒静默检查一次最新生成结果；发现变化时仅热更新数据区域，不整页刷新。自动化或无桌面环境可增加 `--no-open-dashboard`，仅生成文件而不启动服务或打开浏览器。
+生成完成后会启动仅监听 `127.0.0.1` 的无缓存预览服务，并使用系统默认浏览器打开同名 HTML 动态看板。定时预览模式下，“实时刷新”会通过带随机令牌的本地接口触发一次重新采集和生成，完成后整批替换热点；页面每 30 秒也会静默检查 `latest.html`，仅热更新数据区域，不整页刷新。自动化或无桌面环境可增加 `--no-open-dashboard`。
 
 脚本从 `https://www.star-history.com/` 提取 Weekly 的趋势和 Star 变化，并从 All-time 提取 Star 总数。Weekly 固定写成 `序号. 趋势符号 仓库名 +变化量`，例如 `2. ▲ owner/repo +12`；All-time 固定写成 `序号. ：仓库名 ：总数 🌟`。每个仓库下一行使用 `💡 中文一句话介绍`，再下一行使用 `🔎 URL`。简介优先读取 `references/repository-descriptions.zh-CN.json`；新仓库可通过 `--repository-descriptions-file` 提供中文映射。未配置时只输出基于仓库归属的中文事实性说明，不直接展示英文 description，也不臆造功能。趋势使用 `–`（持平）、`▲`（上升）、`▼`（下降），不得输出"排名""趋势""Star 变化""数据源"等标签或尾行。若任一榜单无法识别，停止发送并报告错误，不得用臆测数据补齐。需要离线验证时可用 `--star-history-html <HTML文件>`。
 
@@ -96,7 +100,7 @@ python3 scripts/push_digest.py \
 
 **自动采集热点（推荐）：** 将 `fetch_last30days` 设为 `true`，并填写 `last30days_skill_dir`（指向含 `scripts/last30days.py` 的目录）。每次定时运行时，进程会先调用 `fetch_hotspots.py` 按配置中的 `last30days` 参数刷新热点文件，再生成摘要预览，无需手动维护输入文件。
 
-**手动维护热点文件：** 保持 `fetch_last30days` 为 `false`（默认），由外部流程定时更新 `last30days_file`，每次执行仍会重新抓取 Star History。
+**手动维护热点文件：** 如将 `fetch_last30days` 设为 `false`，由外部流程定时更新 `last30days_file`；每次执行仍会重新抓取 Star History。
 
 先验证一次：
 
@@ -126,7 +130,7 @@ python3 scripts/fetch_hotspots.py \
 ## 质量检查
 
 - 确认三类实际条数均不超过配置，数量为 `0` 时省略该类。
-- 确认热点未重复使用 7 天冷却期内的 URL；同日重复生成结果保持稳定。
+- 确认热点未重复使用 7 天冷却期内的 URL；手动刷新后上一批热点全部移除。
 - 保留来源链接；同一类型内按原始榜单/热度顺序排列。
 - 确认每条热点都有中文描述；缺失时脚本会显示固定占位语，发送前必须补齐并重新生成。
 - 确认 Weekly 每条都有趋势符号和 Star 增量，All-time 每条都有 Star 总数。

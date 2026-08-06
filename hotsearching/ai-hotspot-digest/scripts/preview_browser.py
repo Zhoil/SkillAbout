@@ -21,6 +21,8 @@ def server_directory(port: int) -> Path | None:
     try:
         with urlopen(f"http://{HOST}:{port}/__health__", timeout=0.3) as response:
             payload = json.loads(response.read().decode("utf-8"))
+        if int(payload.get("version", 0)) < 2:
+            return None
         return Path(payload["directory"]).resolve()
     except (OSError, ValueError, KeyError, json.JSONDecodeError):
         return None

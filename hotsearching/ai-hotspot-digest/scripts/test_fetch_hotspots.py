@@ -48,9 +48,10 @@ class BuildCommandTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             skill = self._fake_skill_dir(d)
             cmd = fetch_hotspots.build_command(skill, Path(d) / "out.json", {})
-            self.assertIn("AI artificial intelligence", cmd)
+            self.assertIn(fetch_hotspots.DEFAULT_TOPIC, cmd)
             self.assertIn("--days=30", cmd)
             self.assertIn("--emit=json", cmd)
+            self.assertTrue(any(part.startswith("--plan=") for part in cmd))
 
     def test_custom_topic_days_depth(self):
         with tempfile.TemporaryDirectory() as d:
@@ -116,15 +117,23 @@ class RunFetchTest(unittest.TestCase):
         return skill
 
     def test_writes_json_to_output(self):
-        fake_json = json.dumps({"results": [{"title": "AI news", "url": "https://example.com"}]})
+        fake_json = json.dumps({"results": [{
+            "title": "AI Agent 架构与工程实践总结",
+            "url": "https://example.com/article/1",
+            "summary": "本文深入介绍大模型智能体架构、工具调用、评测方法与可复用的研发实践。",
+            "relevance_score": 0.8,
+        }]})
         with tempfile.TemporaryDirectory() as d:
             skill = self._fake_skill_dir(d)
             out = Path(d) / "result.json"
             with patch("fetch_hotspots.subprocess.run") as mock_run:
                 mock_run.return_value = MagicMock(returncode=0, stdout=fake_json, stderr="")
-                fetch_hotspots.run_fetch(skill, out, {})
+                fetch_hotspots.run_fetch(skill, out, {"domestic": {"enabled": False}})
             self.assertTrue(out.exists())
-            self.assertEqual(json.loads(out.read_text()), json.loads(fake_json))
+            written = json.loads(out.read_text())
+            self.assertEqual(written["results"][0]["title"], "AI Agent 架构与工程实践总结")
+            self.assertIn("quality_score", written["results"][0])
+            self.assertEqual(written["quality"]["input_count"], 1)
 
     def test_nonzero_exit_raises(self):
         with tempfile.TemporaryDirectory() as d:
@@ -143,6 +152,18 @@ class RunFetchTest(unittest.TestCase):
                 mock_run.return_value = MagicMock(returncode=0, stdout="not json", stderr="")
                 with self.assertRaisesRegex(RuntimeError, "not valid JSON"):
                     fetch_hotspots.run_fetch(skill, out, {})
+
+    def test_quality_filter_deduplicates_and_rejects_promotional_content(self):
+        document = {
+            "results": [
+                {"title": "AI Agent 架构实践与源码复盘", "url": "https://example.com/post/1?utm_source=x", "summary": "深入介绍智能体架构、工具调用、评测方法和工程实践。", "source": "web", "relevance_score": 0.8},
+                {"title": "AI Agent 架构实践与源码复盘", "url": "https://example.com/post/1?utm_source=y", "summary": "duplicate", "source": "web", "relevance_score": 0.7},
+                {"title": "震惊！AI 培训班限时优惠", "url": "https://spam.example/article/2", "summary": "扫码加群领取优惠券", "source": "web", "relevance_score": 0.9},
+            ]
+        }
+        merged = fetch_hotspots.merge_and_rank_results(document, [], {}, {})
+        self.assertEqual(len(merged["results"]), 1)
+        self.assertNotIn("utm_source", merged["results"][0]["url"])
 
 
 class MainEntryTest(unittest.TestCase):
